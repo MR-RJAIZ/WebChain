@@ -6,7 +6,7 @@ UPLOAD_DIR = Path("uploads")
 ALLOWED_EXTENSIONS = {".html", ".css", ".js"}
 
 
-def save_upload(file: UploadFile):
+async def save_upload(file: UploadFile):
     extension = Path(file.filename).suffix.lower()
 
     if extension not in ALLOWED_EXTENSIONS:
@@ -22,7 +22,4 @@ def save_upload(file: UploadFile):
     with open(file_path, "wb") as buffer:
         buffer.write(file.file.read())
 
-    return {
-        "filename": file.filename,
-        "message": "File received successfully"
-    }
+    return file_path
