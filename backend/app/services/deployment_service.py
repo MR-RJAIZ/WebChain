@@ -4,6 +4,8 @@ from uuid import uuid4
 
 UPLOAD_DIR = Path("uploads")
 
+deployments = {}
+
 
 def deploy_website():
     files = [
@@ -19,9 +21,13 @@ def deploy_website():
 
     deployment_id = str(uuid4())
 
-    return {
+    deployment = {
         "deployment_id": deployment_id,
         "status": "deployed",
         "message": "Website deployment simulated successfully",
         "files": [file.name for file in files]
     }
+
+    deployments[deployment_id] = deployment
+
+    return deployment
