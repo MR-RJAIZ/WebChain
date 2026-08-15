@@ -20,3 +20,8 @@ async def get_deployment(deployment_id: str):
         )
 
     return deployment
+
+
+@router.get("/deployments")
+async def get_deployments():
+    return list(deployments.values())
