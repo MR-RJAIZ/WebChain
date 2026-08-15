@@ -1,26 +1,28 @@
 from pathlib import Path
 from fastapi import UploadFile, HTTPException
 
-UPLOAD_DIR = Path("uploads")
-UPLOAD_DIR.mkdir(exist_ok=True)
 
+UPLOAD_DIR = Path("uploads")
 ALLOWED_EXTENSIONS = {".html", ".css", ".js"}
 
 
-async def save_upload(file: UploadFile):
-    file_extension = Path(file.filename).suffix.lower()
+def save_upload(file: UploadFile):
+    extension = Path(file.filename).suffix.lower()
 
-    if file_extension not in ALLOWED_EXTENSIONS:
+    if extension not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail="Only HTML, CSS, and JavaScript files are allowed"
+            detail="Only HTML, CSS, and JS files are allowed"
         )
+
+    UPLOAD_DIR.mkdir(exist_ok=True)
 
     file_path = UPLOAD_DIR / file.filename
 
-    contents = await file.read()
-
     with open(file_path, "wb") as buffer:
-        buffer.write(contents)
+        buffer.write(file.file.read())
 
-    return file_path
+    return {
+        "filename": file.filename,
+        "message": "File received successfully"
+    }
