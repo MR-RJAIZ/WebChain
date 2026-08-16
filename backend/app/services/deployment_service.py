@@ -1,5 +1,6 @@
 from pathlib import Path
 from uuid import uuid4
+from app.models.deployment import Deployment
 
 
 UPLOAD_DIR = Path("uploads")
@@ -21,12 +22,12 @@ def deploy_website():
 
     deployment_id = str(uuid4())
 
-    deployment = {
-        "deployment_id": deployment_id,
-        "status": "deployed",
-        "message": "Website deployment simulated successfully",
-        "files": [file.name for file in files]
-    }
+    deployment = Deployment(
+    deployment_id=deployment_id,
+    status="deployed",
+    message="Website deployment simulated successfully",
+    files=[file.name for file in files]
+)
 
     deployments[deployment_id] = deployment
 
