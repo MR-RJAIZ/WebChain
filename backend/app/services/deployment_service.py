@@ -6,6 +6,8 @@ from app.models.deployment import Deployment
 UPLOAD_DIR = Path("uploads")
 
 deployments = {}
+def get_deployment(deployment_id: str):
+    return deployments.get(deployment_id)
 
 
 def deploy_website():
