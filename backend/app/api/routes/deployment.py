@@ -1,11 +1,14 @@
 from fastapi import APIRouter, HTTPException
-from app.models.deployment import Deployment
+from app.models.deployment import Deployment, DeploymentFailure
 from app.services.deployment_service import deploy_website, deployments
 
 router = APIRouter()
 
 
-@router.post("/deploy", response_model=Deployment)
+@router.post(
+    "/deploy",
+    response_model=Deployment | DeploymentFailure
+)
 async def deploy():
     return deploy_website()
 
