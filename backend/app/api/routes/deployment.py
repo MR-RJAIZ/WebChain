@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 
 from app.models.deployment import Deployment, DeploymentFailure
 from app.services.deployment_service import (
@@ -41,3 +42,18 @@ async def get_deployment(deployment_id: str):
 )
 async def get_all_deployments():
     return get_deployments()
+
+
+@router.get("/site/{deployment_id}")
+async def serve_website(deployment_id: str):
+    deployment = get_deployment_service(deployment_id)
+
+    if deployment is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Deployment not found"
+        )
+
+    index_file = "uploads/index.html"
+
+    return FileResponse(index_file)
