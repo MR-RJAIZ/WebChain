@@ -1,10 +1,13 @@
 from fastapi import APIRouter, HTTPException
+
 from app.models.deployment import Deployment, DeploymentFailure
 from app.services.deployment_service import (
     deploy_website,
     get_deployment as get_deployment_service,
-    deployments
+    get_deployments,
 )
+
+
 router = APIRouter()
 
 
@@ -16,7 +19,10 @@ async def deploy():
     return deploy_website()
 
 
-@router.get("/deploy/{deployment_id}", response_model=Deployment)
+@router.get(
+    "/deploy/{deployment_id}",
+    response_model=Deployment
+)
 async def get_deployment(deployment_id: str):
     deployment = get_deployment_service(deployment_id)
 
@@ -29,6 +35,9 @@ async def get_deployment(deployment_id: str):
     return deployment
 
 
-@router.get("/deployments", response_model=list[Deployment])
-async def get_deployments():
-    return list(deployments.values())
+@router.get(
+    "/deployments",
+    response_model=list[Deployment]
+)
+async def get_all_deployments():
+    return get_deployments()
