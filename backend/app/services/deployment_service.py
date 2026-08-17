@@ -1,6 +1,9 @@
 from pathlib import Path
 from uuid import uuid4
+import shutil
 import json
+
+from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.db_models import DeploymentDB
@@ -8,17 +11,16 @@ from app.models.deployment import Deployment
 
 
 UPLOAD_DIR = Path("uploads")
+DEPLOYMENTS_DIR = Path("deployments")
 
 
 def get_deployment(deployment_id: str):
-    db = SessionLocal()
+    db: Session = SessionLocal()
 
     try:
-        deployment = (
-            db.query(DeploymentDB)
-            .filter(DeploymentDB.deployment_id == deployment_id)
-            .first()
-        )
+        deployment = db.query(DeploymentDB).filter(
+            DeploymentDB.deployment_id == deployment_id
+        ).first()
 
         if deployment is None:
             return None
@@ -27,14 +29,14 @@ def get_deployment(deployment_id: str):
             deployment_id=deployment.deployment_id,
             status=deployment.status,
             message=deployment.message,
-            files=json.loads(deployment.files)
+            files=json.loads(deployment.files),
         )
     finally:
         db.close()
 
 
 def get_deployments():
-    db = SessionLocal()
+    db: Session = SessionLocal()
 
     try:
         deployments = db.query(DeploymentDB).all()
@@ -44,7 +46,7 @@ def get_deployments():
                 deployment_id=deployment.deployment_id,
                 status=deployment.status,
                 message=deployment.message,
-                files=json.loads(deployment.files)
+                files=json.loads(deployment.files),
             )
             for deployment in deployments
         ]
@@ -66,25 +68,32 @@ def deploy_website():
 
     deployment_id = str(uuid4())
 
-    deployment = DeploymentDB(
+    deployment_dir = DEPLOYMENTS_DIR / deployment_id
+    deployment_dir.mkdir(parents=True, exist_ok=True)
+
+    for file in files:
+        shutil.copy2(file, deployment_dir / file.name)
+
+    deployment = Deployment(
         deployment_id=deployment_id,
         status="deployed",
         message="Website deployment simulated successfully",
-        files=json.dumps([file.name for file in files])
+        files=[file.name for file in files],
     )
 
-    db = SessionLocal()
+    db: Session = SessionLocal()
 
     try:
-        db.add(deployment)
+        db_deployment = DeploymentDB(
+            deployment_id=deployment.deployment_id,
+            status=deployment.status,
+            message=deployment.message,
+            files=json.dumps(deployment.files),
+        )
+
+        db.add(db_deployment)
         db.commit()
-        db.refresh(deployment)
     finally:
         db.close()
 
-    return Deployment(
-        deployment_id=deployment.deployment_id,
-        status=deployment.status,
-        message=deployment.message,
-        files=json.loads(deployment.files)
-    )
+    return deployment

@@ -1,3 +1,4 @@
+from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
@@ -54,6 +55,12 @@ async def serve_website(deployment_id: str):
             detail="Deployment not found"
         )
 
-    index_file = "uploads/index.html"
+    index_file = Path("deployments") / deployment_id / "index.html"
+
+    if not index_file.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Website index.html not found"
+        )
 
     return FileResponse(index_file)
