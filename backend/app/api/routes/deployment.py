@@ -8,6 +8,7 @@ from app.services.deployment_service import (
     deploy_website,
     get_deployment as get_deployment_service,
     get_deployments,
+    process_deployment,
 )
 
 
@@ -90,3 +91,17 @@ async def serve_deployment_file(
         )
 
     return FileResponse(requested_file)
+@router.post(
+    "/deploy/{deployment_id}/process",
+    response_model=Deployment
+)
+async def process(deployment_id: str):
+    deployment = process_deployment(deployment_id)
+
+    if deployment is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Deployment not found"
+        )
+
+    return deployment

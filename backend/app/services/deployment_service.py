@@ -1,13 +1,13 @@
 from pathlib import Path
 from uuid import uuid4
-import shutil
 import json
+import shutil
 
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.db_models import DeploymentDB
-from app.models.deployment import Deployment
+from app.models.deployment import Deployment, DeploymentStatus
 
 
 UPLOAD_DIR = Path("uploads")
@@ -27,7 +27,7 @@ def get_deployment(deployment_id: str):
 
         return Deployment(
             deployment_id=deployment.deployment_id,
-            status=deployment.status,
+            status=DeploymentStatus(deployment.status),
             message=deployment.message,
             files=json.loads(deployment.files),
         )
@@ -44,7 +44,7 @@ def get_deployments():
         return [
             Deployment(
                 deployment_id=deployment.deployment_id,
-                status=deployment.status,
+                status=DeploymentStatus(deployment.status),
                 message=deployment.message,
                 files=json.loads(deployment.files),
             )
@@ -76,8 +76,8 @@ def deploy_website():
 
     deployment = Deployment(
         deployment_id=deployment_id,
-        status="deployed",
-        message="Website deployment simulated successfully",
+        status=DeploymentStatus.PENDING,
+        message="Deployment created and waiting for processing",
         files=[file.name for file in files],
     )
 
@@ -86,7 +86,7 @@ def deploy_website():
     try:
         db_deployment = DeploymentDB(
             deployment_id=deployment.deployment_id,
-            status=deployment.status,
+            status=deployment.status.value,
             message=deployment.message,
             files=json.dumps(deployment.files),
         )
@@ -97,3 +97,29 @@ def deploy_website():
         db.close()
 
     return deployment
+
+
+def process_deployment(deployment_id: str):
+    db: Session = SessionLocal()
+
+    try:
+        deployment = db.query(DeploymentDB).filter(
+            DeploymentDB.deployment_id == deployment_id
+        ).first()
+
+        if deployment is None:
+            return None
+
+        deployment.status = DeploymentStatus.DEPLOYED.value
+        deployment.message = "Website deployment completed successfully"
+
+        db.commit()
+
+        return Deployment(
+            deployment_id=deployment.deployment_id,
+            status=DeploymentStatus.DEPLOYED,
+            message=deployment.message,
+            files=json.loads(deployment.files),
+        )
+    finally:
+        db.close()

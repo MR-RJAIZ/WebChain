@@ -1,8 +1,10 @@
 from enum import Enum
+
 from pydantic import BaseModel
 
 
 class DeploymentStatus(str, Enum):
+    PENDING = "pending"
     DEPLOYED = "deployed"
     FAILED = "failed"
 
