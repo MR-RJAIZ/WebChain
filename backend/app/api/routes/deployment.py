@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
@@ -64,3 +65,28 @@ async def serve_website(deployment_id: str):
         )
 
     return FileResponse(index_file)
+
+
+@router.get("/site/{deployment_id}/{file_path:path}")
+async def serve_deployment_file(
+    deployment_id: str,
+    file_path: str
+):
+    deployment = get_deployment_service(deployment_id)
+
+    if deployment is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Deployment not found"
+        )
+
+    deployment_dir = Path("deployments") / deployment_id
+    requested_file = deployment_dir / file_path
+
+    if not requested_file.exists() or not requested_file.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="File not found"
+        )
+
+    return FileResponse(requested_file)
