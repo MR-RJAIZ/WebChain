@@ -1,7 +1,9 @@
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse, RedirectResponse
 
 from app.models.deployment import Deployment, DeploymentFailure
 from app.services.deployment_service import (
@@ -11,7 +13,6 @@ from app.services.deployment_service import (
     process_deployment,
 )
 
-
 router = APIRouter()
 
 
@@ -19,8 +20,16 @@ router = APIRouter()
     "/deploy",
     response_model=Deployment | DeploymentFailure
 )
-async def deploy():
-    return deploy_website()
+async def deploy(background_tasks: BackgroundTasks):
+    deployment = deploy_website()
+
+    if isinstance(deployment, Deployment):
+        background_tasks.add_task(
+            process_deployment,
+            deployment.deployment_id
+        )
+
+    return deployment
 
 
 @router.get(
@@ -57,7 +66,26 @@ async def serve_website(deployment_id: str):
             detail="Deployment not found"
         )
 
-    index_file = Path("deployments") / deployment_id / "index.html"
+    return RedirectResponse(
+        url=f"/site/{deployment_id}/"
+    )
+
+
+@router.get("/site/{deployment_id}/")
+async def serve_website_index(deployment_id: str):
+    deployment = get_deployment_service(deployment_id)
+
+    if deployment is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Deployment not found"
+        )
+
+    index_file = (
+        Path("deployments")
+        / deployment_id
+        / "index.html"
+    )
 
     if not index_file.exists():
         raise HTTPException(
@@ -91,6 +119,8 @@ async def serve_deployment_file(
         )
 
     return FileResponse(requested_file)
+
+
 @router.post(
     "/deploy/{deployment_id}/process",
     response_model=Deployment
