@@ -127,8 +127,21 @@ async def serve_deployment_file(
             detail="Deployment is not ready"
         )
 
-    deployment_dir = Path("deployments") / deployment_id
-    requested_file = deployment_dir / file_path
+    deployment_dir = (
+        Path("deployments") / deployment_id
+    ).resolve()
+
+    requested_file = (
+        deployment_dir / file_path
+    ).resolve()
+
+    try:
+        requested_file.relative_to(deployment_dir)
+    except ValueError:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied"
+        )
 
     if not requested_file.exists() or not requested_file.is_file():
         raise HTTPException(
