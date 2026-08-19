@@ -66,6 +66,12 @@ async def serve_website(deployment_id: str):
             detail="Deployment not found"
         )
 
+    if deployment.status != "deployed":
+        raise HTTPException(
+            status_code=409,
+            detail="Deployment is not ready"
+        )
+
     return RedirectResponse(
         url=f"/site/{deployment_id}/"
     )
@@ -79,6 +85,12 @@ async def serve_website_index(deployment_id: str):
         raise HTTPException(
             status_code=404,
             detail="Deployment not found"
+        )
+
+    if deployment.status != "deployed":
+        raise HTTPException(
+            status_code=409,
+            detail="Deployment is not ready"
         )
 
     index_file = (
@@ -107,6 +119,12 @@ async def serve_deployment_file(
         raise HTTPException(
             status_code=404,
             detail="Deployment not found"
+        )
+
+    if deployment.status != "deployed":
+        raise HTTPException(
+            status_code=409,
+            detail="Deployment is not ready"
         )
 
     deployment_dir = Path("deployments") / deployment_id

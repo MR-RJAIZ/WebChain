@@ -110,16 +110,38 @@ def process_deployment(deployment_id: str):
         if deployment is None:
             return None
 
-        deployment.status = DeploymentStatus.DEPLOYED.value
-        deployment.message = "Website deployment completed successfully"
+        try:
+            deployment_dir = DEPLOYMENTS_DIR / deployment_id
+            index_file = deployment_dir / "index.html"
+
+            if not deployment_dir.exists():
+                raise FileNotFoundError(
+                    "Deployment directory not found"
+                )
+
+            if not index_file.exists():
+                raise FileNotFoundError(
+                    "index.html not found"
+                )
+
+            deployment.status = DeploymentStatus.DEPLOYED.value
+            deployment.message = (
+                "Website deployment completed successfully"
+            )
+
+        except Exception as exc:
+            deployment.status = DeploymentStatus.FAILED.value
+            deployment.message = f"Deployment failed: {exc}"
 
         db.commit()
+        db.refresh(deployment)
 
         return Deployment(
             deployment_id=deployment.deployment_id,
-            status=DeploymentStatus.DEPLOYED,
+            status=DeploymentStatus(deployment.status),
             message=deployment.message,
             files=json.loads(deployment.files),
         )
+
     finally:
         db.close()
