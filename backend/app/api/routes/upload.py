@@ -1,16 +1,36 @@
-from fastapi import APIRouter, UploadFile, File
-from app.services.upload_service import save_upload
-from app.models.upload import UploadResponse
+from typing import Annotated
+
+from fastapi import APIRouter, File
+from fastapi import UploadFile as FastAPIUploadFile
+from pydantic import WithJsonSchema
+
+from app.services.upload_service import save_uploads
 
 router = APIRouter()
 
 
-@router.post("/upload", response_model=UploadResponse)
-async def upload_file(file: UploadFile = File(...)):
-    saved_file = await save_upload(file)
+UploadFile = Annotated[
+    FastAPIUploadFile,
+    WithJsonSchema({
+        "type": "string",
+        "format": "binary"
+    })
+]
+
+
+@router.post("/upload")
+async def upload_files(
+    files: list[UploadFile] = File(...)
+):
+    saved_files = await save_uploads(files)
 
     return {
-        "filename": file.filename,
-        "message": "File uploaded successfully",
-        "path": str(saved_file)
+        "message": "Files uploaded successfully",
+        "files": [
+            {
+                "filename": path.name,
+                "path": str(path)
+            }
+            for path in saved_files
+        ]
     }
