@@ -2,6 +2,8 @@ from io import BytesIO
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 import shutil
+import os
+import stat
 
 from fastapi import UploadFile, HTTPException
 
@@ -26,6 +28,15 @@ ALLOWED_EXTENSIONS = {
     ".ttf",
 }
 
+MAX_FILE_SIZE = 5 * 1024 * 1024
+MAX_ZIP_SIZE = 20 * 1024 * 1024
+MAX_EXTRACTED_SIZE = 50 * 1024 * 1024
+
+
+def _remove_readonly(func, path, exc_info):
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
 
 def clear_upload_directory():
     UPLOAD_DIR.mkdir(exist_ok=True)
@@ -35,10 +46,17 @@ def clear_upload_directory():
             continue
 
         if item.is_file() or item.is_symlink():
-            item.unlink()
+            try:
+                item.unlink()
+            except PermissionError:
+                os.chmod(item, stat.S_IWRITE)
+                item.unlink()
 
         elif item.is_dir():
-            shutil.rmtree(item)
+            shutil.rmtree(
+                item,
+                onexc=_remove_readonly
+            )
 
 
 def validate_file(filename: str):
@@ -52,7 +70,8 @@ def validate_file(filename: str):
 
 
 async def save_uploads(files: list[UploadFile]):
-    # Validate everything before deleting the previous upload
+    validated_files = []
+
     for file in files:
         filename = Path(file.filename or "").name
 
@@ -64,15 +83,25 @@ async def save_uploads(files: list[UploadFile]):
 
         validate_file(filename)
 
+        content = await file.read()
+
+        if len(content) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large: {filename}"
+            )
+
+        validated_files.append(
+            (filename, content)
+        )
+
     clear_upload_directory()
 
     saved_files = []
 
-    for file in files:
-        filename = Path(file.filename).name
+    for filename, content in validated_files:
         file_path = UPLOAD_DIR / filename
 
-        content = await file.read()
         file_path.write_bytes(content)
 
         saved_files.append(file_path)
@@ -89,6 +118,12 @@ async def save_zip_upload(file: UploadFile):
 
     content = await file.read()
 
+    if len(content) > MAX_ZIP_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail="ZIP file is too large"
+        )
+
     try:
         with ZipFile(BytesIO(content)) as archive:
             members = [
@@ -101,6 +136,17 @@ async def save_zip_upload(file: UploadFile):
                 raise HTTPException(
                     status_code=400,
                     detail="ZIP file is empty"
+                )
+
+            total_extracted_size = sum(
+                member.file_size
+                for member in members
+            )
+
+            if total_extracted_size > MAX_EXTRACTED_SIZE:
+                raise HTTPException(
+                    status_code=413,
+                    detail="Extracted ZIP contents are too large"
                 )
 
             upload_root = UPLOAD_DIR.resolve()
@@ -125,7 +171,6 @@ async def save_zip_upload(file: UploadFile):
                     (member, destination)
                 )
 
-            # WebChain requires index.html at website root
             has_index = any(
                 Path(member.filename).as_posix() == "index.html"
                 for member, _ in validated_files
