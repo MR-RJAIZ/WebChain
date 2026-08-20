@@ -56,8 +56,9 @@ def get_deployments():
 
 def deploy_website():
     files = [
-        file for file in UPLOAD_DIR.iterdir()
-        if file.name != ".gitkeep"
+        file
+        for file in UPLOAD_DIR.rglob("*")
+        if file.is_file() and file.name != ".gitkeep"
     ]
 
     if not files:
@@ -72,13 +73,24 @@ def deploy_website():
     deployment_dir.mkdir(parents=True, exist_ok=True)
 
     for file in files:
-        shutil.copy2(file, deployment_dir / file.name)
+        relative_path = file.relative_to(UPLOAD_DIR)
+        destination = deployment_dir / relative_path
+
+        destination.parent.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+        shutil.copy2(file, destination)
 
     deployment = Deployment(
         deployment_id=deployment_id,
         status=DeploymentStatus.PENDING,
         message="Deployment created and waiting for processing",
-        files=[file.name for file in files],
+        files=[
+            file.relative_to(UPLOAD_DIR).as_posix()
+            for file in files
+        ],
     )
 
     db: Session = SessionLocal()
@@ -93,6 +105,7 @@ def deploy_website():
 
         db.add(db_deployment)
         db.commit()
+
     finally:
         db.close()
 
