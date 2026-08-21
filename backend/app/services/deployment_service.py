@@ -1,3 +1,4 @@
+from app.services.ipfs_service import upload_to_ipfs
 from pathlib import Path
 from uuid import uuid4
 import json
@@ -145,6 +146,11 @@ def process_deployment(deployment_id: str):
                     "index.html not found"
                 )
 
+            cid = upload_to_ipfs(deployment_dir)
+
+            if cid is not None:
+                deployment.cid = cid
+
             deployment.status = DeploymentStatus.DEPLOYED.value
             deployment.message = (
                 "Website deployment completed successfully"
@@ -162,8 +168,8 @@ def process_deployment(deployment_id: str):
             status=DeploymentStatus(deployment.status),
             message=deployment.message,
             files=json.loads(deployment.files),
-	    cid=deployment.cid,
-	    transaction_hash=deployment.transaction_hash,
+            cid=deployment.cid,
+            transaction_hash=deployment.transaction_hash,
         )
 
     finally:
