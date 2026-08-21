@@ -1,5 +1,4 @@
 from enum import Enum
-
 from pydantic import BaseModel
 
 
@@ -14,6 +13,10 @@ class Deployment(BaseModel):
     status: DeploymentStatus
     message: str
     files: list[str]
+
+    # Future IPFS + Blockchain integration
+    cid: str | None = None
+    transaction_hash: str | None = None
 
 
 class DeploymentFailure(BaseModel):

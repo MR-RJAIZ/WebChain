@@ -30,6 +30,8 @@ def get_deployment(deployment_id: str):
             status=DeploymentStatus(deployment.status),
             message=deployment.message,
             files=json.loads(deployment.files),
+	    cid=deployment.cid,
+	    transaction_hash=deployment.transaction_hash,
         )
     finally:
         db.close()
@@ -47,6 +49,8 @@ def get_deployments():
                 status=DeploymentStatus(deployment.status),
                 message=deployment.message,
                 files=json.loads(deployment.files),
+		cid=deployment.cid,
+	        transaction_hash=deployment.transaction_hash,
             )
             for deployment in deployments
         ]
@@ -91,6 +95,8 @@ def deploy_website():
             file.relative_to(UPLOAD_DIR).as_posix()
             for file in files
         ],
+        cid=None,
+        transaction_hash=None,
     )
 
     db: Session = SessionLocal()
@@ -101,6 +107,8 @@ def deploy_website():
             status=deployment.status.value,
             message=deployment.message,
             files=json.dumps(deployment.files),
+            cid=deployment.cid,
+            transaction_hash=deployment.transaction_hash,
         )
 
         db.add(db_deployment)
@@ -154,6 +162,8 @@ def process_deployment(deployment_id: str):
             status=DeploymentStatus(deployment.status),
             message=deployment.message,
             files=json.loads(deployment.files),
+	    cid=deployment.cid,
+	    transaction_hash=deployment.transaction_hash,
         )
 
     finally:
