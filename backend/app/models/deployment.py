@@ -14,7 +14,8 @@ class Deployment(BaseModel):
     message: str
     files: list[str]
 
-    # Future IPFS + Blockchain integration
+    site_url: str | None = None
+
     cid: str | None = None
     transaction_hash: str | None = None
 
