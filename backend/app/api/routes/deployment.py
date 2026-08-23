@@ -5,7 +5,11 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, RedirectResponse
 
-from app.models.deployment import Deployment, DeploymentFailure
+from app.models.deployment import (
+    Deployment,
+    DeploymentFailure,
+    MessageResponse,
+)
 from app.services.deployment_service import (
     deploy_website,
     get_deployment as get_deployment_service,
@@ -169,7 +173,10 @@ async def process(deployment_id: str):
     return deployment
 
 
-@router.delete("/deploy/{deployment_id}")
+@router.delete(
+    "/deploy/{deployment_id}",
+    response_model=MessageResponse
+)
 async def remove_deployment(deployment_id: str):
     deleted = delete_deployment(deployment_id)
 

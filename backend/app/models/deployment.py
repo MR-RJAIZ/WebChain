@@ -23,3 +23,6 @@ class Deployment(BaseModel):
 class DeploymentFailure(BaseModel):
     status: DeploymentStatus
     message: str
+
+class MessageResponse(BaseModel):
+    message: str
