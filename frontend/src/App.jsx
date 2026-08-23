@@ -44,7 +44,7 @@ function App() {
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
 
   const [search, setSearch] = useState("");
 
@@ -102,14 +102,41 @@ function App() {
   function openProjectModal() {
     setProjectName("");
     setProjectDescription("");
-    setSelectedFile(null);
+    setSelectedFiles([]);
     setShowProjectModal(true);
   }
 
-  function createProject() {
-    if (!projectName.trim()) {
-      alert("Please enter project name.");
-      return;
+async function createProject() {
+  if (!projectName.trim()) {
+    alert("Please enter project name.");
+    return;
+  }
+
+  if (selectedFiles.length === 0) {
+    alert("Please select website files.");
+    return;
+  }
+
+  try {
+    const formData = new FormData();
+
+    selectedFiles.forEach((file) => {
+      formData.append("files", file);
+    });
+
+    const uploadResponse = await fetch(
+      "http://127.0.0.1:8000/upload",
+      {
+        method: "POST",
+        body: formData,
+      }
+    );
+
+    if (!uploadResponse.ok) {
+      const error = await uploadResponse.json();
+      throw new Error(
+        error.detail || "Upload failed"
+      );
     }
 
     const cleanName = projectName
@@ -118,42 +145,60 @@ function App() {
       .replace(/\s+/g, "-")
       .replace(/[^a-z0-9-]/g, "");
 
-    const projectUrl =
-      "https://" +
-      (cleanName || "project") +
-      ".web3host.local";
-
     const newProject = {
       id: Date.now(),
       name: projectName.trim(),
       description:
         projectDescription.trim() ||
         "A new Web3Host project.",
+
       status: "Ready",
       deployment: "Not deployed",
-      url: projectUrl,
-      fileName: selectedFile
-        ? selectedFile.name
-        : "No files uploaded",
+
+      url: "",
+
+      fileName:
+        selectedFiles.length === 1
+          ? selectedFiles[0].name
+          : `${selectedFiles.length} files`,
+
       createdAt: new Date().toLocaleString(),
       lastDeployment: "Not deployed",
+
       visits: 0,
-      storage: selectedFile
-        ? Math.floor(selectedFile.size / 1024)
-        : 0,
+
+      storage: Math.floor(
+        selectedFiles.reduce(
+          (total, file) => total + file.size,
+          0
+        ) / 1024
+      ),
+
+      deploymentId: null,
+      siteUrl: null,
+      cid: null,
+      transactionHash: null,
     };
 
-    setProjects((prev) => [...prev, newProject]);
+    setProjects((prev) => [
+      ...prev,
+      newProject,
+    ]);
 
     setShowProjectModal(false);
     setProjectName("");
     setProjectDescription("");
-    setSelectedFile(null);
+    setSelectedFiles([]);
 
     addNotification(
-      "Project created successfully 🚀"
+      "Project uploaded successfully 🚀"
     );
+
+  } catch (error) {
+    console.error(error);
+    alert(error.message);
   }
+}
 
   // ================= NOTIFICATION =================
   function addNotification(message) {
@@ -170,49 +215,137 @@ function App() {
   }
 
   // ================= DEPLOY =================
-  function deployProject(id) {
-    setDeployingId(id);
+async function deployProject(id) {
+  setDeployingId(id);
+  setDeploymentStep("Creating deployment...");
 
-    setDeploymentStep("Preparing project...");
+  try {
+    const deployResponse = await fetch(
+      "http://127.0.0.1:8000/deploy",
+      {
+        method: "POST",
+      }
+    );
 
-    setTimeout(() => {
-      setDeploymentStep("Uploading files...");
-    }, 700);
+    if (!deployResponse.ok) {
+      const error = await deployResponse.json();
 
-    setTimeout(() => {
-      setDeploymentStep("Building project...");
-    }, 1400);
+      throw new Error(
+        error.detail ||
+        error.message ||
+        "Deployment failed"
+      );
+    }
 
-    setTimeout(() => {
-      setDeploymentStep("Deploying to Web3Host...");
-    }, 2100);
+    const deployment = await deployResponse.json();
 
-    setTimeout(() => {
-      setProjects((prev) =>
-        prev.map((project) =>
-          project.id === id
-            ? {
+    const deploymentId =
+      deployment.deployment_id;
+
+    setDeploymentStep(
+      "Processing deployment..."
+    );
+
+    let currentDeployment = deployment;
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, 500)
+      );
+
+      const statusResponse = await fetch(
+        `http://127.0.0.1:8000/deploy/${deploymentId}`
+      );
+
+      if (!statusResponse.ok) {
+        throw new Error(
+          "Could not check deployment status"
+        );
+      }
+
+      currentDeployment =
+        await statusResponse.json();
+
+      if (
+        currentDeployment.status === "deployed" ||
+        currentDeployment.status === "failed"
+      ) {
+        break;
+      }
+    }
+
+    if (
+      currentDeployment.status === "failed"
+    ) {
+      throw new Error(
+        currentDeployment.message ||
+        "Deployment failed"
+      );
+    }
+
+    const fullSiteUrl =
+      "http://127.0.0.1:8000" +
+      currentDeployment.site_url;
+
+    setProjects((prev) =>
+      prev.map((project) =>
+        project.id === id
+          ? {
               ...project,
               deployment: "Live",
               status: "Deployed",
+
+              deploymentId:
+                currentDeployment.deployment_id,
+
+              siteUrl: fullSiteUrl,
+              url: fullSiteUrl,
+
+              cid:
+                currentDeployment.cid,
+
+              transactionHash:
+                currentDeployment.transaction_hash,
+
               lastDeployment:
                 new Date().toLocaleString(),
-              visits: project.visits || 0,
             }
-            : project
-        )
-      );
+          : project
+      )
+    );
 
-      setDeployingId(null);
-      setDeploymentStep("");
+    setDeploymentStep("Deployment complete");
 
-      addNotification(
-        "🚀 Project deployed successfully!"
-      );
+    addNotification(
+      "Project deployed successfully 🚀"
+    );
 
-      alert("🚀 Project deployed successfully!");
-    }, 3000);
+    alert(
+      "Project deployed successfully!"
+    );
+
+  } catch (error) {
+    console.error(error);
+
+    setProjects((prev) =>
+      prev.map((project) =>
+        project.id === id
+          ? {
+              ...project,
+              status: "Failed",
+              deployment: "Failed",
+            }
+          : project
+      )
+    );
+
+    alert(error.message);
+
+  } finally {
+    setDeployingId(null);
+    setDeploymentStep("");
   }
+}
 
   // ================= DELETE =================
   function deleteProject(id) {
@@ -1340,24 +1473,22 @@ function App() {
               <label className="upload-button">
                 Choose Files
 
-                <input
-                  type="file"
-                  multiple
-                  onChange={(e) =>
-                    setSelectedFile(
-                      e.target.files[0] ||
-                      null
-                    )
-                  }
-                />
+              <input
+  		type="file"
+  		multiple
+  		onChange={(e) =>
+    		  setSelectedFiles(
+      		    Array.from(e.target.files)
+    		  )
+  		}
+	      />
               </label>
 
-              {selectedFile && (
-                <div className="selected-file">
-                  ✓{" "}
-                  {selectedFile.name}
-                </div>
-              )}
+              {selectedFiles.length > 0 && (
+  		<div className="selected-file">
+    		  ✓ {selectedFiles.length} file(s) selected
+  		</div>
+	      )}
             </div>
 
             <button
