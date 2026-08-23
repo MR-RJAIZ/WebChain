@@ -2165,3 +2165,41 @@ footer p {
     scroll-behavior: auto !important;
   }
 }
+/* Fix Create Account input text visibility */
+.input-group input,
+.input-group input[type="text"],
+.input-group input[type="email"],
+.input-group input[type="password"] {
+  color: #30282b !important;
+  background: #fffdfd !important;
+  caret-color: #df6685;
+}
+
+.input-group input::placeholder {
+  color: #9b8e92 !important;
+  opacity: 1;
+}
+
+/* Autofill text fix */
+.input-group input:-webkit-autofill,
+.input-group input:-webkit-autofill:hover,
+.input-group input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #30282b !important;
+  caret-color: #30282b;
+}
+.password-box input {
+  color: #30282b !important;
+  -webkit-text-fill-color: #30282b !important;
+}
+
+.hero h1 {
+  color: #8f2948;
+}
+
+.hero h1 span {
+  color: #7a1838;
+}
+
+.hero p {
+  color: #8f2948;
+}
