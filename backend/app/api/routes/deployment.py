@@ -11,6 +11,7 @@ from app.services.deployment_service import (
     get_deployment as get_deployment_service,
     get_deployments,
     process_deployment,
+    delete_deployment,
 )
 
 router = APIRouter()
@@ -166,3 +167,18 @@ async def process(deployment_id: str):
         )
 
     return deployment
+
+
+@router.delete("/deploy/{deployment_id}")
+async def remove_deployment(deployment_id: str):
+    deleted = delete_deployment(deployment_id)
+
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail="Deployment not found"
+        )
+
+    return {
+        "message": "Deployment deleted successfully"
+    }

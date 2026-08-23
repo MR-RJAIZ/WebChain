@@ -3,12 +3,18 @@ from pathlib import Path
 from uuid import uuid4
 import json
 import shutil
+import os
+import stat
 
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.db_models import DeploymentDB
 from app.models.deployment import Deployment, DeploymentStatus
+
+def _remove_readonly(func, path, exc_info):
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
 
 
 UPLOAD_DIR = Path("uploads")
@@ -175,6 +181,33 @@ def process_deployment(deployment_id: str):
             cid=deployment.cid,
             transaction_hash=deployment.transaction_hash,
         )
+
+    finally:
+        db.close()
+
+def delete_deployment(deployment_id: str):
+    db: Session = SessionLocal()
+
+    try:
+        deployment = db.query(DeploymentDB).filter(
+            DeploymentDB.deployment_id == deployment_id
+        ).first()
+
+        if deployment is None:
+            return False
+
+        deployment_dir = DEPLOYMENTS_DIR / deployment_id
+
+        if deployment_dir.exists():
+            shutil.rmtree(
+                deployment_dir,
+                onexc=_remove_readonly
+            )
+
+        db.delete(deployment)
+        db.commit()
+
+        return True
 
     finally:
         db.close()
