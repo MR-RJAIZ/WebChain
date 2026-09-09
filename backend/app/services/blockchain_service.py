@@ -18,12 +18,12 @@ Ethereum-compatible blockchain
 WebsiteRegistry.sol
 """
 
-
 import json
-import os
 from pathlib import Path
 
 from web3 import Web3
+
+from app.config import settings
 
 
 class BlockchainService:
@@ -31,112 +31,107 @@ class BlockchainService:
     Service responsible for interacting with
     WebsiteRegistry smart contract.
 
-    IMPORTANT:
-
-    IPFSService handles:
+    IPFSService:
         Website → IPFS → CID
 
-    BlockchainService handles:
+    BlockchainService:
         CID → Blockchain
-
-    We keep these responsibilities separate because
-    this makes our backend architecture cleaner.
     """
 
     def __init__(
         self,
-        rpc_url: str = "http://127.0.0.1:8545",
+        rpc_url: str | None = None,
         contract_address: str | None = None,
     ):
+        # =====================================================
+        # STEP 1: RPC CONNECTION
+        # =====================================================
 
-        # -----------------------------------------------------
-        # STEP 1: Connect to blockchain node
-        # -----------------------------------------------------
-
-        # Hardhat local network normally exposes RPC at:
-        #
-        # http://127.0.0.1:8545
-        #
-        # Web3.py uses this URL to communicate with
-        # the blockchain node.
+        self.rpc_url = rpc_url or settings.rpc_url
 
         self.web3 = Web3(
-            Web3.HTTPProvider(rpc_url)
+            Web3.HTTPProvider(self.rpc_url)
         )
-
-
-        # -----------------------------------------------------
-        # STEP 2: Check blockchain connection
-        # -----------------------------------------------------
 
         if not self.web3.is_connected():
             raise ConnectionError(
-                f"Could not connect to blockchain RPC: {rpc_url}"
+                f"Could not connect to blockchain RPC: {self.rpc_url}"
             )
 
+        # =====================================================
+        # STEP 2: CONTRACT ADDRESS
+        # =====================================================
 
-        # -----------------------------------------------------
-        # STEP 3: Contract address
-        # -----------------------------------------------------
+        self.contract_address = contract_address or settings.contract_address
 
-        # The smart contract must already be deployed.
-        #
-        # Earlier we deployed WebsiteRegistry and got:
-        #
-        # 0x5FbDB2315678afecb367f032d93F642f64180aa3
-        #
-        # This address belongs to the local Hardhat network.
+        if not self.contract_address:
+            raise ValueError(
+                "Contract address is not configured."
+            )
 
-        self.contract_address = contract_address or (
-            "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+        self.contract_address = Web3.to_checksum_address(
+            self.contract_address
         )
 
+        # =====================================================
+        # STEP 3: CHECK CONTRACT DEPLOYMENT
+        # =====================================================
 
-        # -----------------------------------------------------
-        # STEP 4: Load contract ABI
-        # -----------------------------------------------------
-
-        # Hardhat generates the ABI after compilation.
-        #
-        # ABI tells Web3.py:
-        #
-        # - which functions exist
-        # - what parameters they accept
-        # - what they return
-        #
-        # Example:
-        #
-        # registerWebsite(string,string)
-        # getWebsite(uint256)
-        # verifyWebsite(uint256,string)
-
-        artifact_path = Path(
-            "../artifacts/contracts/WebsiteRegistry.sol/"
-            "WebsiteRegistry.json"
+        contract_code = self.web3.eth.get_code(
+            self.contract_address
         )
 
+        if not contract_code:
+            raise ConnectionError(
+                f"No smart contract deployed at "
+                f"{self.contract_address}"
+            )
+
+        # =====================================================
+        # STEP 4: LOAD CONTRACT ABI
+        # =====================================================
+
+        # Project root:
+        #
+        # WebChain/
+        # ├── artifacts/
+        # ├── backend/
+        # │   └── app/
+        #
+        # __file__:
+        # backend/app/services/blockchain_service.py
+        #
+        # parents[3] → WebChain/
+
+        project_root = Path(__file__).resolve().parents[3]
+
+        artifact_path = (
+            project_root
+            / "artifacts"
+            / "contracts"
+            / "WebsiteRegistry.sol"
+            / "WebsiteRegistry.json"
+        )
 
         if not artifact_path.exists():
             raise FileNotFoundError(
                 f"Contract artifact not found: {artifact_path}"
             )
 
-
         with artifact_path.open(
             "r",
-            encoding="utf-8"
+            encoding="utf-8",
         ) as file:
-
             artifact = json.load(file)
 
+        # =====================================================
+        # STEP 5: CREATE CONTRACT INSTANCE
+        # =====================================================
 
         self.contract = self.web3.eth.contract(
-            address=Web3.to_checksum_address(
-                self.contract_address
-            ),
+            address=self.contract_address,
             abi=artifact["abi"],
         )
-
 
     # =========================================================
     # HEALTH CHECK
@@ -145,18 +140,9 @@ class BlockchainService:
     def health_check(self) -> bool:
         """
         Check whether blockchain node is reachable.
-
-        Returns:
-
-            True
-                Blockchain is reachable.
-
-            False
-                Blockchain is not reachable.
         """
 
         return self.web3.is_connected()
-
 
     # =========================================================
     # REGISTER WEBSITE
@@ -166,22 +152,16 @@ class BlockchainService:
         self,
         name: str,
         cid: str,
-        private_key: str,
-    ) -> int:
+    ) -> dict:
         """
         Register a website on the blockchain.
 
         Input:
+            name:
+                Website name.
 
-            name
-                Human-readable website name.
-
-            cid
+            cid:
                 Root CID returned by IPFS.
-
-            private_key
-                Wallet private key used to sign
-                the blockchain transaction.
 
         Flow:
 
@@ -191,16 +171,39 @@ class BlockchainService:
                 ↓
             CID
                 ↓
-            this function
-                ↓
             registerWebsite()
                 ↓
             Blockchain
         """
 
-        # -----------------------------------------------------
-        # STEP 1: Get wallet address
-        # -----------------------------------------------------
+        # =====================================================
+        # STEP 1: VALIDATE INPUT
+        # =====================================================
+
+        if not name.strip():
+            raise ValueError(
+                "Website name cannot be empty"
+            )
+
+        if not cid.strip():
+            raise ValueError(
+                "CID cannot be empty"
+            )
+
+        # =====================================================
+        # STEP 2: GET PRIVATE KEY
+        # =====================================================
+
+        private_key = settings.private_key
+
+        if not private_key:
+            raise ValueError(
+                "PRIVATE_KEY is not configured."
+            )
+
+        # =====================================================
+        # STEP 3: GET WALLET
+        # =====================================================
 
         account = self.web3.eth.account.from_key(
             private_key
@@ -208,53 +211,38 @@ class BlockchainService:
 
         wallet_address = account.address
 
-
-        # -----------------------------------------------------
-        # STEP 2: Get current nonce
-        # -----------------------------------------------------
-
-        # Nonce identifies the transaction number
-        # for this wallet.
+        # =====================================================
+        # STEP 4: GET NONCE
+        # =====================================================
 
         nonce = self.web3.eth.get_transaction_count(
-            wallet_address
+            wallet_address,
+            "pending",
         )
 
-
-        # -----------------------------------------------------
-        # STEP 3: Build smart contract transaction
-        # -----------------------------------------------------
+        # =====================================================
+        # STEP 5: BUILD TRANSACTION
+        # =====================================================
 
         transaction = (
             self.contract.functions
-            .registerWebsite(name, cid)
+            .registerWebsite(
+                name,
+                cid,
+            )
             .build_transaction(
                 {
                     "from": wallet_address,
-
-                    # Current account nonce
                     "nonce": nonce,
-
-                    # Gas limit for local development
                     "gas": 500000,
-
-                    # Current gas price
                     "gasPrice": self.web3.eth.gas_price,
                 }
             )
         )
 
-
-        # -----------------------------------------------------
-        # STEP 4: Sign transaction
-        # -----------------------------------------------------
-
-        # IMPORTANT:
-        #
-        # The private key NEVER goes to the smart contract.
-        #
-        # It is used locally to cryptographically sign
-        # the transaction.
+        # =====================================================
+        # STEP 6: SIGN TRANSACTION
+        # =====================================================
 
         signed_transaction = (
             self.web3.eth.account.sign_transaction(
@@ -263,10 +251,9 @@ class BlockchainService:
             )
         )
 
-
-        # -----------------------------------------------------
-        # STEP 5: Send transaction
-        # -----------------------------------------------------
+        # =====================================================
+        # STEP 7: SEND TRANSACTION
+        # =====================================================
 
         transaction_hash = (
             self.web3.eth.send_raw_transaction(
@@ -274,10 +261,9 @@ class BlockchainService:
             )
         )
 
-
-        # -----------------------------------------------------
-        # STEP 6: Wait for blockchain confirmation
-        # -----------------------------------------------------
+        # =====================================================
+        # STEP 8: WAIT FOR CONFIRMATION
+        # =====================================================
 
         receipt = (
             self.web3.eth.wait_for_transaction_receipt(
@@ -285,37 +271,41 @@ class BlockchainService:
             )
         )
 
+        # =====================================================
+        # STEP 9: CHECK TRANSACTION STATUS
+        # =====================================================
 
-        # -----------------------------------------------------
-        # STEP 7: Extract website ID
-        # -----------------------------------------------------
+        if receipt["status"] != 1:
+            raise RuntimeError(
+                "Blockchain transaction failed."
+            )
 
-        # registerWebsite() returns website ID.
-        #
-        # However, because this is a blockchain transaction,
-        # the return value is normally represented through
-        # transaction execution/event logs.
-        #
-        # Our contract emits WebsiteRegistered event.
-        #
-        # We therefore read the event from the receipt.
+        # =====================================================
+        # STEP 10: READ WEBSITE REGISTERED EVENT
+        # =====================================================
 
-        events = self.contract.events.WebsiteRegistered().process_receipt(
-            receipt
+        events = (
+            self.contract
+            .events
+            .WebsiteRegistered()
+            .process_receipt(receipt)
         )
-
 
         if not events:
             raise RuntimeError(
-                "WebsiteRegistered event not found"
+                "WebsiteRegistered event not found."
             )
-
 
         website_id = events[0]["args"]["websiteId"]
 
+        # =====================================================
+        # STEP 11: RETURN RESULT
+        # =====================================================
 
-        return int(website_id)
-
+        return {
+            "website_id": int(website_id),
+            "transaction_hash": transaction_hash.hex(),
+        }
 
     # =========================================================
     # GET WEBSITE
@@ -324,25 +314,34 @@ class BlockchainService:
     def get_website(
         self,
         website_id: int,
-    ):
+    ) -> dict:
         """
         Read website information from blockchain.
 
         This is a READ operation.
 
-        Therefore:
-
-            No transaction
-            No gas
-            No private key
+        No:
+            - transaction
+            - gas
+            - private key
 
         is required.
         """
 
-        return self.contract.functions.getWebsite(
-            website_id
-        ).call()
+        website = (
+            self.contract
+            .functions
+            .getWebsite(website_id)
+            .call()
+        )
 
+        return {
+            "id": int(website[0]),
+            "name": website[1],
+            "cid": website[2],
+            "owner": website[3],
+            "timestamp": int(website[4]),
+        }
 
     # =========================================================
     # VERIFY WEBSITE
@@ -354,19 +353,8 @@ class BlockchainService:
         cid: str,
     ) -> bool:
         """
-        Verify whether a CID matches the CID stored
-        on blockchain.
-
-        Example:
-
-            Stored CID:
-                QmABC...
-
-            Provided CID:
-                QmABC...
-
-            Result:
-                True
+        Verify whether the provided CID matches
+        the CID stored on the blockchain.
         """
 
         return self.contract.functions.verifyWebsite(
