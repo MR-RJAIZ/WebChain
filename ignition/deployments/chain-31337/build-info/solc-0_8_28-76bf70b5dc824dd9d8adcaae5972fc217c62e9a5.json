@@ -1,0 +1,49 @@
+{
+  "_format": "hh3-sol-build-info-1",
+  "id": "solc-0_8_28-76bf70b5dc824dd9d8adcaae5972fc217c62e9a5",
+  "solcVersion": "0.8.28",
+  "solcLongVersion": "0.8.28+commit.7893614a",
+  "compilerType": "solc",
+  "toolVersions": {
+    "hardhat": "3.13.0"
+  },
+  "userSourceNameMap": {
+    "contracts/WebsiteRegistry.sol": "project/contracts/WebsiteRegistry.sol"
+  },
+  "input": {
+    "language": "Solidity",
+    "settings": {
+      "evmVersion": "cancun",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "outputSelection": {
+        "*": {
+          "": [
+            "ast"
+          ],
+          "*": [
+            "abi",
+            "evm.bytecode.linkReferences",
+            "evm.bytecode.object",
+            "evm.bytecode.opcodes",
+            "evm.bytecode.sourceMap",
+            "evm.deployedBytecode.immutableReferences",
+            "evm.deployedBytecode.linkReferences",
+            "evm.deployedBytecode.object",
+            "evm.deployedBytecode.opcodes",
+            "evm.deployedBytecode.sourceMap",
+            "evm.methodIdentifiers"
+          ]
+        }
+      },
+      "remappings": []
+    },
+    "sources": {
+      "project/contracts/WebsiteRegistry.sol": {
+        "content": "// SPDX-License-Identifier: UNLICENSED\r\n\r\n// Solidity compiler ko bataya ja raha hai ki\r\n// hum Solidity 0.8.28 ya compatible 0.8.x version use karenge.\r\npragma solidity ^0.8.28;\r\n\r\n\r\n// Hamara smart contract.\r\n// Ye blockchain par deploy hoga.\r\ncontract WebsiteRegistry {\r\n\r\n    // ---------------------------------------------------------\r\n    // WEBSITE DATA STRUCTURE\r\n    // ---------------------------------------------------------\r\n\r\n    // struct ek custom data type hai.\r\n    //\r\n    // Ek website ke baare mein jo information humein\r\n    // blockchain par store karni hai, wo yahan define hoti hai.\r\n    struct Website {\r\n\r\n        // Website ka unique ID.\r\n        // Example: 1, 2, 3...\r\n        uint256 id;\r\n\r\n        // Website ka human-readable naam.\r\n        // Example: \"Ritik Portfolio\"\r\n        string name;\r\n\r\n        // IPFS ka CID.\r\n        //\r\n        // Website ki actual files blockchain par nahi hongi.\r\n        // IPFS par upload hone ke baad jo CID milega,\r\n        // wahi yahan store hoga.\r\n        //\r\n        // Example:\r\n        // bafybeigdyr...\r\n        string cid;\r\n\r\n        // Website register karne wale wallet ka address.\r\n        //\r\n        // msg.sender se ye address milega.\r\n        address owner;\r\n\r\n        // Website registration ke time ka blockchain timestamp.\r\n        uint256 timestamp;\r\n    }\r\n\r\n\r\n    // ---------------------------------------------------------\r\n    // STORAGE\r\n    // ---------------------------------------------------------\r\n\r\n    // Ye mapping website ID ko Website object se connect karti hai.\r\n    //\r\n    // Example:\r\n    //\r\n    // websites[1] -> Website #1\r\n    // websites[2] -> Website #2\r\n    // websites[3] -> Website #3\r\n    //\r\n    // \"private\" ka matlab contract ke bahar directly\r\n    // is mapping ko access nahi kiya ja sakta.\r\n    mapping(uint256 => Website) private websites;\r\n\r\n\r\n    // Next website ko kaunsi ID deni hai.\r\n    //\r\n    // Agar first website register hoti hai:\r\n    // nextWebsiteId = 1\r\n    //\r\n    // registration ke baad:\r\n    // nextWebsiteId = 2\r\n    uint256 private nextWebsiteId = 1;\r\n\r\n\r\n    // ---------------------------------------------------------\r\n    // EVENTS\r\n    // ---------------------------------------------------------\r\n\r\n    // Event blockchain par ek log create karta hai.\r\n    //\r\n    // Jab website register hogi to ye event emit hoga.\r\n    //\r\n    // Frontend/backend future mein in events ko\r\n    // listen karke updates detect kar sakte hain.\r\n    event WebsiteRegistered(\r\n        uint256 indexed websiteId,\r\n        string name,\r\n        string cid,\r\n        address indexed owner\r\n    );\r\n\r\n\r\n    // Website update hone par ye event emit hoga.\r\n    event WebsiteUpdated(\r\n        uint256 indexed websiteId,\r\n        string newCid\r\n    );\r\n\r\n\r\n    // ---------------------------------------------------------\r\n    // REGISTER WEBSITE\r\n    // ---------------------------------------------------------\r\n\r\n    function registerWebsite(\r\n        string memory name,\r\n        string memory cid\r\n    ) public returns (uint256) {\r\n\r\n        // Empty website name allow nahi karna.\r\n        require(\r\n            bytes(name).length > 0,\r\n            \"Website name cannot be empty\"\r\n        );\r\n\r\n        // Empty CID allow nahi karna.\r\n        require(\r\n            bytes(cid).length > 0,\r\n            \"CID cannot be empty\"\r\n        );\r\n\r\n\r\n        // Current nextWebsiteId ko local variable mein rakh rahe hain.\r\n        //\r\n        // Example:\r\n        // nextWebsiteId = 1\r\n        //\r\n        // to currentWebsiteId = 1\r\n        uint256 currentWebsiteId = nextWebsiteId;\r\n\r\n\r\n        // Website data blockchain storage mein save kar rahe hain.\r\n        websites[currentWebsiteId] = Website({\r\n\r\n            // Website ID\r\n            id: currentWebsiteId,\r\n\r\n            // User ke dwara diya gaya name\r\n            name: name,\r\n\r\n            // IPFS CID\r\n            cid: cid,\r\n\r\n            // msg.sender = jis wallet ne transaction bheji.\r\n            //\r\n            // Isi wallet ko website ka owner bana rahe hain.\r\n            owner: msg.sender,\r\n\r\n            // Current blockchain timestamp\r\n            timestamp: block.timestamp\r\n        });\r\n\r\n\r\n        // Next website ke liye ID increase kar do.\r\n        //\r\n        // 1 → 2\r\n        // 2 → 3\r\n        // 3 → 4\r\n        nextWebsiteId++;\r\n\r\n\r\n        // Event emit kar rahe hain.\r\n        //\r\n        // Isse blockchain logs mein registration record\r\n        // create ho jata hai.\r\n        emit WebsiteRegistered(\r\n            currentWebsiteId,\r\n            name,\r\n            cid,\r\n            msg.sender\r\n        );\r\n\r\n\r\n        // Website ID return kar rahe hain.\r\n        return currentWebsiteId;\r\n    }\r\n\r\n\r\n    // ---------------------------------------------------------\r\n    // GET WEBSITE\r\n    // ---------------------------------------------------------\r\n\r\n    // \"view\" ka matlab:\r\n    //\r\n    // Ye function blockchain state ko change nahi karega.\r\n    // Sirf data read karega.\r\n    function getWebsite(\r\n        uint256 websiteId\r\n    ) public view returns (Website memory) {\r\n\r\n        // Given ID ka website record return kar do.\r\n        return websites[websiteId];\r\n    }\r\n\r\n\r\n    // ---------------------------------------------------------\r\n    // VERIFY WEBSITE\r\n    // ---------------------------------------------------------\r\n\r\n    function verifyWebsite(\r\n        uint256 websiteId,\r\n        string memory providedCid\r\n    ) public view returns (bool) {\r\n\r\n        // Stored CID blockchain se read kar rahe hain.\r\n        string memory storedCid = websites[websiteId].cid;\r\n\r\n\r\n        // Solidity mein strings ko directly == se compare\r\n        // nahi karte.\r\n        //\r\n        // Isliye dono strings ka keccak256 hash bana rahe hain.\r\n        //\r\n        // Agar hashes same hain:\r\n        // CID same hai.\r\n        //\r\n        // Agar hashes different hain:\r\n        // CID different hai.\r\n        return\r\n            keccak256(bytes(storedCid)) ==\r\n            keccak256(bytes(providedCid));\r\n    }\r\n\r\n\r\n    // ---------------------------------------------------------\r\n    // UPDATE WEBSITE\r\n    // ---------------------------------------------------------\r\n\r\n    function updateWebsite(\r\n        uint256 websiteId,\r\n        string memory newCid\r\n    ) public {\r\n\r\n        // Check kar rahe hain ki website exist karti hai.\r\n        require(\r\n            websites[websiteId].id != 0,\r\n            \"Website does not exist\"\r\n        );\r\n\r\n\r\n        // IMPORTANT SECURITY CHECK\r\n        //\r\n        // Sirf website ka owner CID update kar sakta hai.\r\n        //\r\n        // Agar:\r\n        //\r\n        // stored owner = 0xABC\r\n        // msg.sender   = 0xABC\r\n        //\r\n        // allowed ✅\r\n        //\r\n        // Agar:\r\n        //\r\n        // stored owner = 0xABC\r\n        // msg.sender   = 0xXYZ\r\n        //\r\n        // transaction reject ❌\r\n        require(\r\n            websites[websiteId].owner == msg.sender,\r\n            \"Not website owner\"\r\n        );\r\n\r\n\r\n        // New CID ko blockchain mein update kar rahe hain.\r\n        websites[websiteId].cid = newCid;\r\n\r\n\r\n        // Update event emit kar rahe hain.\r\n        emit WebsiteUpdated(\r\n            websiteId,\r\n            newCid\r\n        );\r\n    }\r\n}"
+      }
+    }
+  }
+}
