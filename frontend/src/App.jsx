@@ -1,5 +1,138 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./index.css";
+
+// =========================================================
+// BACKEND API URL
+//
+// WHY a constant?
+// Easy to change for different environments.
+// In production you'd replace this with the actual server URL.
+// =========================================================
+
+const BACKEND_URL = "http://127.0.0.1:8000";
+
+// =========================================================
+// API HELPERS
+// =========================================================
+
+/**
+ * POST /publish — Deploy website files to IPFS + blockchain.
+ *
+ * @param {string} name - Website name
+ * @param {FileList} files - All selected files
+ * @param {function} onStep - Callback to update progress step text
+ * @returns {Promise<object>} - { website_id, cid, gateway_url, ... }
+ */
+async function apiPublish(name, files, onStep) {
+  onStep("Preparing files...");
+
+  const formData = new FormData();
+  formData.append("name", name);
+
+  // Append every file. The relative path is preserved via
+  // file.webkitRelativePath (folder upload) or file.name.
+  for (const file of files) {
+    // Use the relative path if available (folder upload),
+    // otherwise just the filename.
+    const relativePath = file.webkitRelativePath || file.name;
+    formData.append("files", file, relativePath);
+  }
+
+  onStep("Uploading to IPFS...");
+
+  const response = await fetch(`${BACKEND_URL}/publish`, {
+    method: "POST",
+    body: formData,
+    // NOTE: Do NOT set Content-Type header — browser sets it
+    // automatically with the correct boundary for multipart.
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.detail || `Server error: ${response.status}`);
+  }
+
+  onStep("Registering on blockchain...");
+
+  return data;
+}
+
+/**
+ * GET /website/{id} — Retrieve website metadata from blockchain.
+ */
+async function apiGetWebsite(websiteId) {
+  const response = await fetch(
+    `${BACKEND_URL}/website/${websiteId}`
+  );
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.detail || `Not found: ${response.status}`);
+  }
+  return data;
+}
+
+/**
+ * GET /website/{id}/verify?cid=... — Verify a CID against blockchain.
+ */
+async function apiVerifyCID(websiteId, cid) {
+  const url = `${BACKEND_URL}/website/${websiteId}/verify?cid=${encodeURIComponent(cid)}`;
+  const response = await fetch(url);
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.detail || `Verification failed: ${response.status}`);
+  }
+  return data;
+}
+
+/**
+ * PUT /website/{id} — Update CID for an existing website.
+ */
+async function apiUpdateWebsite(websiteId, name, files, onStep) {
+  onStep("Preparing update files...");
+
+  const formData = new FormData();
+  formData.append("name", name);
+
+  for (const file of files) {
+    const relativePath = file.webkitRelativePath || file.name;
+    formData.append("files", file, relativePath);
+  }
+
+  onStep("Uploading new version to IPFS...");
+
+  const response = await fetch(`${BACKEND_URL}/website/${websiteId}`, {
+    method: "PUT",
+    body: formData,
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.detail || `Update failed: ${response.status}`);
+  }
+
+  onStep("Updating blockchain record...");
+
+  return data;
+}
+
+/**
+ * GET /health — Check all service statuses.
+ */
+async function apiHealth() {
+  try {
+    const response = await fetch(`${BACKEND_URL}/health`);
+    if (!response.ok) return { api: false, ipfs: false, blockchain: false };
+    return await response.json();
+  } catch {
+    return { api: false, ipfs: false, blockchain: false };
+  }
+}
+
+// =========================================================
+// MAIN APP COMPONENT
+// =========================================================
 
 function App() {
   const [page, setPage] = useState("home");
@@ -44,12 +177,14 @@ function App() {
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
 
   const [search, setSearch] = useState("");
 
+  // Deployment state
   const [deployingId, setDeployingId] = useState(null);
   const [deploymentStep, setDeploymentStep] = useState("");
+  const [deploymentError, setDeploymentError] = useState("");
 
   // ================= PROJECT DETAILS =================
   const [selectedProject, setSelectedProject] = useState(null);
@@ -57,8 +192,38 @@ function App() {
   // ================= NOTIFICATIONS =================
   const [notifications, setNotifications] = useState([]);
 
-  // ================= WALLET =================
+  // ================= WALLET (UI only) =================
   const [walletConnected, setWalletConnected] = useState(false);
+
+  // ================= HEALTH STATUS =================
+  const [health, setHealth] = useState({
+    api: null,
+    ipfs: null,
+    blockchain: null,
+  });
+
+  // ================= CID VERIFICATION =================
+  const [verifyCid, setVerifyCid] = useState("");
+  const [verifyResult, setVerifyResult] = useState(null);
+  const [verifyError, setVerifyError] = useState("");
+  const [verifying, setVerifying] = useState(false);
+
+  // ================= UPDATE STATE =================
+  const [updateFiles, setUpdateFiles] = useState([]);
+  const [updating, setUpdating] = useState(false);
+  const [updateStep, setUpdateStep] = useState("");
+  const [updateError, setUpdateError] = useState("");
+
+  // Refs for file inputs
+  const deployFileInputRef = useRef(null);
+  const updateFileInputRef = useRef(null);
+
+  // ================= FETCH HEALTH ON DASHBOARD OPEN =================
+  useEffect(() => {
+    if (page === "dashboard") {
+      apiHealth().then(setHealth);
+    }
+  }, [page]);
 
   // ================= AUTH =================
   function handleSubmit(e) {
@@ -102,57 +267,9 @@ function App() {
   function openProjectModal() {
     setProjectName("");
     setProjectDescription("");
-    setSelectedFile(null);
+    setSelectedFiles([]);
+    setDeploymentError("");
     setShowProjectModal(true);
-  }
-
-  function createProject() {
-    if (!projectName.trim()) {
-      alert("Please enter project name.");
-      return;
-    }
-
-    const cleanName = projectName
-      .toLowerCase()
-      .trim()
-      .replace(/\s+/g, "-")
-      .replace(/[^a-z0-9-]/g, "");
-
-    const projectUrl =
-      "https://" +
-      (cleanName || "project") +
-      ".web3host.local";
-
-    const newProject = {
-      id: Date.now(),
-      name: projectName.trim(),
-      description:
-        projectDescription.trim() ||
-        "A new Web3Host project.",
-      status: "Ready",
-      deployment: "Not deployed",
-      url: projectUrl,
-      fileName: selectedFile
-        ? selectedFile.name
-        : "No files uploaded",
-      createdAt: new Date().toLocaleString(),
-      lastDeployment: "Not deployed",
-      visits: 0,
-      storage: selectedFile
-        ? Math.floor(selectedFile.size / 1024)
-        : 0,
-    };
-
-    setProjects((prev) => [...prev, newProject]);
-
-    setShowProjectModal(false);
-    setProjectName("");
-    setProjectDescription("");
-    setSelectedFile(null);
-
-    addNotification(
-      "Project created successfully 🚀"
-    );
   }
 
   // ================= NOTIFICATION =================
@@ -163,55 +280,71 @@ function App() {
       time: new Date().toLocaleTimeString(),
     };
 
-    setNotifications((prev) => [
-      notification,
-      ...prev,
-    ]);
+    setNotifications((prev) => [notification, ...prev]);
   }
 
-  // ================= DEPLOY =================
-  function deployProject(id) {
-    setDeployingId(id);
+  // ================= REAL DEPLOY =================
+  /**
+   * Deploys a website by:
+   * 1. Sending files to POST /publish
+   * 2. Backend: saves → IPFS → blockchain
+   * 3. Returns website_id, cid, gateway_url
+   * 4. Stores result in project state
+   */
+  async function deployProject(project) {
+    if (!project.files || project.files.length === 0) {
+      setDeploymentError(
+        "No files selected. Please select website files before deploying."
+      );
+      return;
+    }
 
-    setDeploymentStep("Preparing project...");
+    setDeployingId(project.id);
+    setDeploymentStep("Connecting to backend...");
+    setDeploymentError("");
 
-    setTimeout(() => {
-      setDeploymentStep("Uploading files...");
-    }, 700);
+    try {
+      // ── Call POST /publish ──────────────────────────────
+      const result = await apiPublish(
+        project.name,
+        project.files,
+        (step) => setDeploymentStep(step)
+      );
 
-    setTimeout(() => {
-      setDeploymentStep("Building project...");
-    }, 1400);
+      setDeploymentStep("Deployment complete! ✓");
 
-    setTimeout(() => {
-      setDeploymentStep("Deploying to Web3Host...");
-    }, 2100);
-
-    setTimeout(() => {
+      // ── Update project state with real blockchain data ──
       setProjects((prev) =>
-        prev.map((project) =>
-          project.id === id
+        prev.map((p) =>
+          p.id === project.id
             ? {
-              ...project,
-              deployment: "Live",
-              status: "Deployed",
-              lastDeployment:
-                new Date().toLocaleString(),
-              visits: project.visits || 0,
-            }
-            : project
+                ...p,
+                deployment:      "Live",
+                status:          "Deployed",
+                lastDeployment:  new Date().toLocaleString(),
+                // Real data from backend:
+                websiteId:       result.website_id,
+                cid:             result.cid,
+                gatewayUrl:      result.gateway_url,
+                transactionHash: result.transaction_hash,
+                filesSaved:      result.files_saved,
+              }
+            : p
         )
       );
 
-      setDeployingId(null);
-      setDeploymentStep("");
-
       addNotification(
-        "🚀 Project deployed successfully!"
+        `🚀 Deployed! Website ID: ${result.website_id} | CID: ${result.cid.substring(0, 16)}...`
       );
-
-      alert("🚀 Project deployed successfully!");
-    }, 3000);
+    } catch (err) {
+      setDeploymentStep("");
+      setDeploymentError(
+        `Deployment failed: ${err.message}`
+      );
+      addNotification(`❌ Deployment failed: ${err.message}`);
+    } finally {
+      setDeployingId(null);
+    }
   }
 
   // ================= DELETE =================
@@ -226,36 +359,34 @@ function App() {
       prev.filter((project) => project.id !== id)
     );
 
-    if (
-      selectedProject &&
-      selectedProject.id === id
-    ) {
+    if (selectedProject && selectedProject.id === id) {
       setSelectedProject(null);
     }
 
     addNotification("Project deleted.");
   }
 
-  // ================= COPY URL =================
-  function copyUrl(url) {
+  // ================= COPY =================
+  function copyText(text) {
     if (!navigator.clipboard) {
-      alert(url);
+      alert(text);
       return;
     }
-
     navigator.clipboard
-      .writeText(url)
-      .then(() => {
-        alert("🔗 Project URL copied!");
-      })
-      .catch(() => {
-        alert(url);
-      });
+      .writeText(text)
+      .then(() => addNotification("📋 Copied to clipboard!"))
+      .catch(() => alert(text));
   }
 
   // ================= OPEN PROJECT =================
   function openProjectDetails(project) {
     setSelectedProject(project);
+    setVerifyCid(project.cid || "");
+    setVerifyResult(null);
+    setVerifyError("");
+    setUpdateFiles([]);
+    setUpdateStep("");
+    setUpdateError("");
     setPage("project");
   }
 
@@ -267,12 +398,10 @@ function App() {
       (project) => project.id === selectedProject.id
     );
 
-    if (updated) {
-      setSelectedProject(updated);
-    }
+    if (updated) setSelectedProject(updated);
   }, [projects]);
 
-  // ================= WALLET =================
+  // ================= WALLET (UI) =================
   function connectWallet() {
     setWalletConnected((prev) => !prev);
 
@@ -285,48 +414,155 @@ function App() {
 
   // ================= SEARCH =================
   const filteredProjects = projects.filter((project) =>
-    project.name
-      .toLowerCase()
-      .includes(search.toLowerCase())
+    project.name.toLowerCase().includes(search.toLowerCase())
   );
 
   // ================= DEPLOYMENT PROGRESS =================
   function getProgress() {
     if (!deployingId) return 0;
+    if (deploymentStep.includes("Connecting")) return 10;
+    if (deploymentStep.includes("Preparing")) return 25;
+    if (deploymentStep.includes("IPFS")) return 55;
+    if (deploymentStep.includes("blockchain") || deploymentStep.includes("Blockchain")) return 80;
+    if (deploymentStep.includes("complete")) return 100;
+    return 15;
+  }
 
-    if (deploymentStep === "Preparing project...")
-      return 20;
+  // ================= VERIFY CID =================
+  async function handleVerifyCID(project) {
+    if (!verifyCid.trim()) {
+      setVerifyError("Please enter a CID to verify.");
+      return;
+    }
 
-    if (deploymentStep === "Uploading files...")
-      return 45;
+    if (!project.websiteId) {
+      setVerifyError("Website not yet deployed. Deploy first.");
+      return;
+    }
 
-    if (deploymentStep === "Building project...")
-      return 70;
+    setVerifying(true);
+    setVerifyResult(null);
+    setVerifyError("");
 
-    if (
-      deploymentStep ===
-      "Deploying to Web3Host..."
-    )
-      return 90;
+    try {
+      const result = await apiVerifyCID(project.websiteId, verifyCid.trim());
+      setVerifyResult(result.verified);
+    } catch (err) {
+      setVerifyError(`Verification error: ${err.message}`);
+    } finally {
+      setVerifying(false);
+    }
+  }
 
-    return 10;
+  // ================= UPDATE WEBSITE =================
+  async function handleUpdateWebsite(project) {
+    if (!project.websiteId) {
+      setUpdateError("Website not yet deployed on blockchain.");
+      return;
+    }
+
+    if (updateFiles.length === 0) {
+      setUpdateError("Please select the new website files for update.");
+      return;
+    }
+
+    setUpdating(true);
+    setUpdateStep("Starting update...");
+    setUpdateError("");
+
+    try {
+      const result = await apiUpdateWebsite(
+        project.websiteId,
+        project.name,
+        updateFiles,
+        (step) => setUpdateStep(step)
+      );
+
+      setUpdateStep("Update complete! ✓");
+
+      // Store new CID in project state
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.id === project.id
+            ? {
+                ...p,
+                cid:             result.new_cid,
+                gatewayUrl:      result.gateway_url,
+                transactionHash: result.transaction_hash,
+                lastDeployment:  new Date().toLocaleString(),
+                filesSaved:      result.files_saved,
+              }
+            : p
+        )
+      );
+
+      setVerifyCid(result.new_cid);
+      setVerifyResult(null);
+
+      addNotification(
+        `🔄 Updated! New CID: ${result.new_cid.substring(0, 16)}...`
+      );
+    } catch (err) {
+      setUpdateStep("");
+      setUpdateError(`Update failed: ${err.message}`);
+    } finally {
+      setUpdating(false);
+      setUpdateFiles([]);
+      if (updateFileInputRef.current) {
+        updateFileInputRef.current.value = "";
+      }
+    }
+  }
+
+  // ================= CREATE PROJECT (store files in state) =================
+  function createProject() {
+    if (!projectName.trim()) {
+      alert("Please enter project name.");
+      return;
+    }
+
+    if (selectedFiles.length === 0) {
+      alert("Please select at least one file.");
+      return;
+    }
+
+    const newProject = {
+      id:          Date.now(),
+      name:        projectName.trim(),
+      description: projectDescription.trim() || "A WebChain project.",
+      status:      "Ready",
+      deployment:  "Not deployed",
+      // Store the actual File objects so we can send them to the backend
+      files:       selectedFiles,
+      fileName:    selectedFiles.length === 1
+                     ? selectedFiles[0].name
+                     : `${selectedFiles.length} files`,
+      createdAt:   new Date().toLocaleString(),
+      lastDeployment: "Not deployed",
+      visits:      0,
+      storage:     Array.from(selectedFiles).reduce((s, f) => s + f.size, 0),
+      // These will be filled in after deployment:
+      websiteId:   null,
+      cid:         null,
+      gatewayUrl:  null,
+      transactionHash: null,
+      filesSaved:  [],
+    };
+
+    setProjects((prev) => [...prev, newProject]);
+    setShowProjectModal(false);
+    setProjectName("");
+    setProjectDescription("");
+    setSelectedFiles([]);
+    addNotification("📁 Project created. Click Deploy to publish it.");
   }
 
   return (
-    <div
-      className={
-        darkMode
-          ? "app dark-mode"
-          : "app"
-      }
-    >
+    <div className={darkMode ? "app dark-mode" : "app"}>
       {/* ================= NAVBAR ================= */}
 
       <nav className="navbar">
-        <button
-          className="brand"
-          onClick={() => setPage("home")}
-        >
+        <button className="brand" onClick={() => setPage("home")}>
           <div className="logo">W3</div>
 
           <div>
@@ -344,7 +580,6 @@ function App() {
           {page === "home" && (
             <>
               <a href="#features">Features</a>
-
               <a href="#about">About</a>
 
               <button
@@ -352,9 +587,7 @@ function App() {
                 onClick={connectWallet}
               >
                 🔗{" "}
-                {walletConnected
-                  ? "Connected"
-                  : "Connect Wallet"}
+                {walletConnected ? "Connected" : "Connect Wallet"}
               </button>
 
               <button
@@ -379,19 +612,14 @@ function App() {
           )}
 
           {user && page === "dashboard" && (
-            <button
-              className="nav-button"
-              onClick={logout}
-            >
+            <button className="nav-button" onClick={logout}>
               Logout
             </button>
           )}
 
           <button
             className="theme-button"
-            onClick={() =>
-              setDarkMode(!darkMode)
-            }
+            onClick={() => setDarkMode(!darkMode)}
             aria-label="Toggle theme"
           >
             {darkMode ? "☀️" : "🌙"}
@@ -433,10 +661,7 @@ function App() {
                 🚀 Start Deploying
               </button>
 
-              <a
-                href="#features"
-                className="secondary-button"
-              >
+              <a href="#features" className="secondary-button">
                 Explore Features
               </a>
             </div>
@@ -444,43 +669,31 @@ function App() {
             <div className="hero-glow"></div>
           </section>
 
-          {/* ================= STATS ================= */}
-
+          {/* STATS */}
           <section className="stats">
             <div>
-              <h2>99.9%</h2>
-              <p>Uptime</p>
+              <h2>100%</h2>
+              <p>Decentralized</p>
             </div>
-
             <div>
-              <h2>⚡ Fast</h2>
-              <p>Deployment</p>
+              <h2>⚡ IPFS</h2>
+              <p>Powered</p>
             </div>
-
             <div>
-              <h2>🔐 Secure</h2>
-              <p>Infrastructure</p>
+              <h2>🔐 On-Chain</h2>
+              <p>Registry</p>
             </div>
-
             <div>
               <h2>🌍 Global</h2>
               <p>Accessibility</p>
             </div>
           </section>
 
-          {/* ================= FEATURES ================= */}
-
-          <section
-            id="features"
-            className="section"
-          >
+          {/* FEATURES */}
+          <section id="features" className="section">
             <div className="section-heading">
               <p>WHY WEB3HOST</p>
-
-              <h2>
-                Powerful Hosting Experience
-              </h2>
-
+              <h2>Powerful Hosting Experience</h2>
               <span>
                 Everything you need to build and
                 deploy modern websites.
@@ -488,105 +701,37 @@ function App() {
             </div>
 
             <div className="feature-grid">
-              <Feature
-                icon="⚡"
-                title="Lightning Fast"
-                text="Deploy your websites quickly with a developer-friendly workflow."
-              />
-
-              <Feature
-                icon="🛡️"
-                title="Secure"
-                text="Your projects are protected with security-focused infrastructure."
-              />
-
-              <Feature
-                icon="🌎"
-                title="Global"
-                text="Make your applications accessible from anywhere in the world."
-              />
-
-              <Feature
-                icon="🔗"
-                title="Web3 Ready"
-                text="Built with the future of decentralized applications in mind."
-              />
-
-              <Feature
-                icon="📦"
-                title="Easy Deployment"
-                text="Upload your project and manage deployments from one dashboard."
-              />
-
-              <Feature
-                icon="📊"
-                title="Analytics"
-                text="Monitor deployments, visits, storage and project activity."
-              />
-
-              <Feature
-                icon="🔔"
-                title="Notifications"
-                text="Stay updated about your projects and deployments."
-              />
-
-              <Feature
-                icon="👤"
-                title="Developer Profile"
-                text="Manage your Web3Host account from one place."
-              />
-
-              <Feature
-                icon="🔐"
-                title="Authentication"
-                text="Secure login and signup experience for developers."
-              />
-
-              <Feature
-                icon="🌙"
-                title="Dark Mode"
-                text="Switch between light and dark themes for a better developer experience."
-              />
-
-              <Feature
-                icon="🔍"
-                title="Project Search"
-                text="Find your projects quickly from the dashboard."
-              />
-
-              <Feature
-                icon="💾"
-                title="Local Project Storage"
-                text="Project information is preserved using browser local storage."
-              />
+              <Feature icon="⚡" title="Lightning Fast" text="Deploy your websites to IPFS with a developer-friendly workflow." />
+              <Feature icon="🛡️" title="Immutable" text="Your website content is cryptographically verified on the blockchain." />
+              <Feature icon="🌎" title="Global" text="IPFS distributes your content globally via a peer-to-peer network." />
+              <Feature icon="🔗" title="Web3 Ready" text="Built on IPFS and Ethereum — fully decentralized hosting." />
+              <Feature icon="📦" title="Easy Deployment" text="Upload your project and manage deployments from one dashboard." />
+              <Feature icon="🔍" title="CID Verification" text="Verify your website content against the blockchain registry." />
+              <Feature icon="🔔" title="Notifications" text="Stay updated about your projects and deployments." />
+              <Feature icon="👤" title="Developer Profile" text="Manage your Web3Host account from one place." />
+              <Feature icon="🔐" title="Owner Updates" text="Only the website owner can update the CID on-chain." />
+              <Feature icon="🌙" title="Dark Mode" text="Switch between light and dark themes." />
+              <Feature icon="🔍" title="Project Search" text="Find your projects quickly from the dashboard." />
+              <Feature icon="🔄" title="Version Updates" text="Deploy new versions and update the blockchain registry." />
             </div>
           </section>
 
-          {/* ================= ABOUT ================= */}
-
-          <section
-            id="about"
-            className="about"
-          >
+          {/* ABOUT */}
+          <section id="about" className="about">
             <div className="about-content">
-              <p className="pink-label">
-                BUILT FOR DEVELOPERS
-              </p>
+              <p className="pink-label">BUILT FOR DEVELOPERS</p>
 
               <h2>
                 One Platform.
                 <br />
-                <span>
-                  Infinite Possibilities.
-                </span>
+                <span>Infinite Possibilities.</span>
               </h2>
 
               <p>
-                Upload your project, deploy it
-                and manage everything from one
-                simple platform. Web3Host brings
-                modern hosting and decentralized
-                technology together.
+                Upload your project, deploy it to IPFS,
+                and register it on the blockchain.
+                Web3Host brings modern hosting and
+                decentralized technology together.
               </p>
 
               <button
@@ -609,17 +754,20 @@ function App() {
 
               <div className="terminal-content">
                 <p>
-                  <span>$</span> web3host deploy
+                  <span>$</span> web3host deploy ./my-site/
                 </p>
-
                 <p className="terminal-muted">
-                  Uploading project...
+                  Uploading to IPFS...
                 </p>
-
                 <p className="terminal-success">
-                  ✓ Project deployed successfully
+                  ✓ CID: QmXvZ9...
                 </p>
-
+                <p className="terminal-muted">
+                  Registering on blockchain...
+                </p>
+                <p className="terminal-success">
+                  ✓ Website ID: 1
+                </p>
                 <p className="terminal-muted">
                   Your website is live 🚀
                 </p>
@@ -627,21 +775,13 @@ function App() {
             </div>
           </section>
 
-          {/* ================= FOOTER ================= */}
-
+          {/* FOOTER */}
           <footer>
             <div>
               <strong>Web3Host</strong>
-
-              <p>
-                Decentralized hosting for the modern
-                web.
-              </p>
+              <p>Decentralized hosting for the modern web.</p>
             </div>
-
-            <p>
-              © 2026 Web3Host. All rights reserved.
-            </p>
+            <p>© 2026 Web3Host. All rights reserved.</p>
           </footer>
         </>
       )}
@@ -651,14 +791,10 @@ function App() {
       {page === "auth" && (
         <section className="auth-page">
           <div className="auth-card">
-            <div className="auth-logo">
-              W3
-            </div>
+            <div className="auth-logo">W3</div>
 
             <h2>
-              {authMode === "login"
-                ? "Welcome Back"
-                : "Create Account"}
+              {authMode === "login" ? "Welcome Back" : "Create Account"}
             </h2>
 
             <p className="auth-subtitle">
@@ -691,42 +827,23 @@ function App() {
 
                 <div className="password-box">
                   <input
-                    type={
-                      showPassword
-                        ? "text"
-                        : "password"
-                    }
+                    type={showPassword ? "text" : "password"}
                     placeholder="••••••••"
                     value={password}
-                    onChange={(e) =>
-                      setPassword(
-                        e.target.value
-                      )
-                    }
+                    onChange={(e) => setPassword(e.target.value)}
                   />
 
                   <button
                     type="button"
-                    onClick={() =>
-                      setShowPassword(
-                        !showPassword
-                      )
-                    }
+                    onClick={() => setShowPassword(!showPassword)}
                   >
-                    {showPassword
-                      ? "Hide"
-                      : "Show"}
+                    {showPassword ? "Hide" : "Show"}
                   </button>
                 </div>
               </div>
 
-              <button
-                type="submit"
-                className="primary-button full"
-              >
-                {authMode === "login"
-                  ? "Login →"
-                  : "Create Account →"}
+              <button type="submit" className="primary-button full">
+                {authMode === "login" ? "Login →" : "Create Account →"}
               </button>
             </form>
 
@@ -737,16 +854,10 @@ function App() {
 
               <button
                 onClick={() =>
-                  setAuthMode(
-                    authMode === "login"
-                      ? "signup"
-                      : "login"
-                  )
+                  setAuthMode(authMode === "login" ? "signup" : "login")
                 }
               >
-                {authMode === "login"
-                  ? "Sign Up"
-                  : "Login"}
+                {authMode === "login" ? "Sign Up" : "Login"}
               </button>
             </div>
 
@@ -766,21 +877,15 @@ function App() {
         <section className="dashboard">
           <div className="dashboard-header">
             <div>
-              <p className="pink-label">
-                DASHBOARD
-              </p>
+              <p className="pink-label">DASHBOARD</p>
 
               <h1>
                 Welcome back{" "}
-                {user?.name
-                  ? user.name
-                  : "Developer"}{" "}
-                👋
+                {user?.name ? user.name : "Developer"} 👋
               </h1>
 
               <p>
-                Manage your projects and
-                deployments from one place.
+                Manage your decentralized projects.
               </p>
             </div>
 
@@ -792,8 +897,29 @@ function App() {
             </button>
           </div>
 
-          {/* ================= DASHBOARD STATS ================= */}
+          {/* ──── HEALTH STATUS ──── */}
+          <div className="health-bar">
+            <HealthDot
+              label="API"
+              status={health.api}
+            />
+            <HealthDot
+              label="IPFS"
+              status={health.ipfs}
+            />
+            <HealthDot
+              label="Blockchain"
+              status={health.blockchain}
+            />
+            <button
+              className="outline-button small"
+              onClick={() => apiHealth().then(setHealth)}
+            >
+              ↻ Refresh Status
+            </button>
+          </div>
 
+          {/* DASHBOARD STATS */}
           <div className="dashboard-grid">
             <DashboardCard
               icon="📁"
@@ -803,76 +929,61 @@ function App() {
 
             <DashboardCard
               icon="🚀"
-              title="Deployments"
+              title="Deployed"
               value={
-                projects.filter(
-                  (p) =>
-                    p.deployment === "Live"
-                ).length
+                projects.filter((p) => p.deployment === "Live").length
               }
             />
 
             <DashboardCard
-              icon="💾"
-              title="Storage"
+              icon="🔗"
+              title="On-Chain"
               value={
-                projects.length > 0
-                  ? projects.length * 25 +
-                  " MB"
-                  : "0 MB"
+                projects.filter((p) => p.websiteId).length
               }
             />
 
             <DashboardCard
               icon="🟢"
-              title="System Status"
-              value="Active"
+              title="IPFS Status"
+              value={
+                health.ipfs === null
+                  ? "Checking..."
+                  : health.ipfs
+                  ? "Online"
+                  : "Offline"
+              }
             />
           </div>
 
-          {/* ================= NOTIFICATIONS ================= */}
-
+          {/* NOTIFICATIONS */}
           {notifications.length > 0 && (
             <div className="notification-panel">
               <div className="projects-heading">
                 <div>
                   <h2>🔔 Notifications</h2>
-                  <p>
-                    Recent project activity
-                  </p>
+                  <p>Recent project activity</p>
                 </div>
               </div>
 
-              {notifications
-                .slice(0, 4)
-                .map((notification) => (
-                  <div
-                    className="notification-item"
-                    key={notification.id}
-                  >
-                    <span>
-                      {notification.message}
-                    </span>
-
-                    <small>
-                      {notification.time}
-                    </small>
-                  </div>
-                ))}
+              {notifications.slice(0, 4).map((notification) => (
+                <div
+                  className="notification-item"
+                  key={notification.id}
+                >
+                  <span>{notification.message}</span>
+                  <small>{notification.time}</small>
+                </div>
+              ))}
             </div>
           )}
 
-          {/* ================= PROJECTS ================= */}
-
+          {/* PROJECTS */}
           <div className="projects-section">
             <div className="projects-heading">
               <div>
                 <h2>Your Projects</h2>
-
-                <p>
-                  Create and manage your
-                  websites.
-                </p>
+                <p>Create and manage your websites.</p>
               </div>
 
               <button
@@ -883,38 +994,22 @@ function App() {
               </button>
             </div>
 
-            {/* SEARCH */}
-
             {projects.length > 0 && (
               <div className="project-search">
                 <input
                   type="text"
                   placeholder="🔍 Search projects..."
                   value={search}
-                  onChange={(e) =>
-                    setSearch(e.target.value)
-                  }
+                  onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
             )}
 
-            {/* EMPTY */}
-
             {projects.length === 0 ? (
               <div className="empty-project">
-                <div className="empty-icon">
-                  📦
-                </div>
-
-                <h3>
-                  No projects yet
-                </h3>
-
-                <p>
-                  Create your first project and
-                  start deploying.
-                </p>
-
+                <div className="empty-icon">📦</div>
+                <h3>No projects yet</h3>
+                <p>Create your first project and start deploying.</p>
                 <button
                   className="primary-button"
                   onClick={openProjectModal}
@@ -922,159 +1017,134 @@ function App() {
                   Create First Project
                 </button>
               </div>
-            ) : filteredProjects.length ===
-              0 ? (
+            ) : filteredProjects.length === 0 ? (
               <div className="empty-project">
-                <div className="empty-icon">
-                  🔍
-                </div>
-
-                <h3>
-                  No project found
-                </h3>
-
-                <p>
-                  Try searching with another
-                  name.
-                </p>
+                <div className="empty-icon">🔍</div>
+                <h3>No project found</h3>
+                <p>Try searching with another name.</p>
               </div>
             ) : (
               <div className="project-list">
-                {filteredProjects.map(
-                  (project) => (
-                    <div
-                      className="project-card"
-                      key={project.id}
-                    >
-                      <div className="project-icon">
-                        🌐
-                      </div>
+                {filteredProjects.map((project) => (
+                  <div
+                    className="project-card"
+                    key={project.id}
+                  >
+                    <div className="project-icon">🌐</div>
 
-                      <div className="project-info">
-                        <h3>
-                          {project.name}
-                        </h3>
+                    <div className="project-info">
+                      <h3>{project.name}</h3>
+                      <p>{project.description}</p>
+                      <small>
+                        📦 {project.fileName}
+                      </small>
 
-                        <p>
-                          {project.description}
-                        </p>
+                      {/* Show real CID when deployed */}
+                      {project.cid && (
+                        <div className="live-url" style={{ wordBreak: "break-all", fontSize: "0.75rem" }}>
+                          🔗 CID: {project.cid.substring(0, 20)}...
+                        </div>
+                      )}
 
-                        <small>
-                          📦{" "}
-                          {project.fileName}
-                        </small>
-
-                        {project.deployment ===
-                          "Live" && (
-                            <div className="live-url">
-                              🌐 {project.url}
-                            </div>
-                          )}
-                      </div>
-
-                      <span
-                        className={
-                          project.deployment ===
-                            "Live"
-                            ? "status live-status"
-                            : "status"
-                        }
-                      >
-                        ●{" "}
-                        {project.deployment ===
-                          "Live"
-                          ? "Live"
-                          : "Ready"}
-                      </span>
-
-                      <button
-                        className="outline-button"
-                        onClick={() =>
-                          openProjectDetails(
-                            project
-                          )
-                        }
-                      >
-                        Details
-                      </button>
-
-                      {project.deployment ===
-                        "Live" && (
-                          <button
-                            className="copy-button"
-                            onClick={() =>
-                              copyUrl(
-                                project.url
-                              )
-                            }
+                      {/* IPFS gateway link */}
+                      {project.gatewayUrl && project.deployment === "Live" && (
+                        <div className="live-url">
+                          🌐{" "}
+                          <a
+                            href={project.gatewayUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ color: "inherit" }}
                           >
-                            Copy URL
-                          </button>
-                        )}
-
-                      <button
-                        className="deploy-button"
-                        disabled={
-                          deployingId ===
-                          project.id
-                        }
-                        onClick={() =>
-                          deployProject(
-                            project.id
-                          )
-                        }
-                      >
-                        {deployingId ===
-                          project.id
-                          ? "Deploying..."
-                          : project.deployment ===
-                            "Live"
-                            ? "Redeploy"
-                            : "Deploy"}
-                      </button>
-
-                      <button
-                        className="delete-button"
-                        onClick={() =>
-                          deleteProject(
-                            project.id
-                          )
-                        }
-                      >
-                        Delete
-                      </button>
+                            View on IPFS
+                          </a>
+                        </div>
+                      )}
                     </div>
-                  )
-                )}
+
+                    <span
+                      className={
+                        project.deployment === "Live"
+                          ? "status live-status"
+                          : "status"
+                      }
+                    >
+                      ●{" "}
+                      {project.deployment === "Live" ? "Live" : "Ready"}
+                    </span>
+
+                    <button
+                      className="outline-button"
+                      onClick={() => openProjectDetails(project)}
+                    >
+                      Details
+                    </button>
+
+                    {project.deployment === "Live" && (
+                      <button
+                        className="copy-button"
+                        onClick={() => copyText(project.cid || "")}
+                      >
+                        Copy CID
+                      </button>
+                    )}
+
+                    {/* Real deploy button */}
+                    <button
+                      className="deploy-button"
+                      disabled={deployingId === project.id}
+                      onClick={() => deployProject(project)}
+                    >
+                      {deployingId === project.id
+                        ? "Deploying..."
+                        : project.deployment === "Live"
+                        ? "Redeploy"
+                        : "Deploy"}
+                    </button>
+
+                    <button
+                      className="delete-button"
+                      onClick={() => deleteProject(project.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
 
-          {/* ================= DEPLOYMENT PROGRESS ================= */}
-
+          {/* DEPLOYMENT PROGRESS + ERRORS */}
           {deployingId && (
             <div className="deployment-panel">
-              <h2>
-                🚀 Deployment in progress
-              </h2>
-
-              <p>
-                {deploymentStep}
-              </p>
+              <h2>🚀 Deployment in progress</h2>
+              <p>{deploymentStep}</p>
 
               <div className="progress-track">
                 <div
                   className="progress-bar"
-                  style={{
-                    width:
-                      getProgress() + "%",
-                  }}
+                  style={{ width: getProgress() + "%" }}
                 ></div>
               </div>
 
-              <span>
-                {getProgress()}%
-              </span>
+              <span>{getProgress()}%</span>
+            </div>
+          )}
+
+          {deploymentError && (
+            <div
+              className="deployment-panel"
+              style={{ borderColor: "#ff4444", background: "rgba(255,68,68,0.08)" }}
+            >
+              <h2>❌ Deployment Error</h2>
+              <p style={{ color: "#ff4444" }}>{deploymentError}</p>
+              <button
+                className="outline-button"
+                onClick={() => setDeploymentError("")}
+                style={{ marginTop: "0.5rem" }}
+              >
+                Dismiss
+              </button>
             </div>
           )}
         </section>
@@ -1082,282 +1152,367 @@ function App() {
 
       {/* ================= PROJECT DETAILS ================= */}
 
-      {page === "project" &&
-        selectedProject && (
-          <section className="project-details-page">
-            <button
-              className="back-button"
-              onClick={() =>
-                setPage("dashboard")
+      {page === "project" && selectedProject && (
+        <section className="project-details-page">
+          <button
+            className="back-button"
+            onClick={() => setPage("dashboard")}
+          >
+            ← Back to Dashboard
+          </button>
+
+          <div className="project-details-header">
+            <div>
+              <p className="pink-label">PROJECT DETAILS</p>
+              <h1>{selectedProject.name}</h1>
+              <p>{selectedProject.description}</p>
+            </div>
+
+            <div
+              className={
+                selectedProject.deployment === "Live"
+                  ? "status live-status large-status"
+                  : "status large-status"
               }
             >
-              ← Back to Dashboard
+              ●{" "}
+              {selectedProject.deployment === "Live" ? "Live" : "Ready"}
+            </div>
+          </div>
+
+          {/* ──── DETAILS GRID ──── */}
+          <div className="details-grid">
+
+            {/* Website ID */}
+            <div className="details-card">
+              <span>🔢 Website ID</span>
+              <strong>
+                {selectedProject.websiteId != null
+                  ? `#${selectedProject.websiteId}`
+                  : "Not deployed yet"}
+              </strong>
+            </div>
+
+            {/* IPFS CID */}
+            <div className="details-card">
+              <span>🔗 IPFS CID</span>
+              <strong style={{ wordBreak: "break-all", fontSize: "0.8rem" }}>
+                {selectedProject.cid || "Not deployed yet"}
+              </strong>
+              {selectedProject.cid && (
+                <button
+                  className="copy-button"
+                  onClick={() => copyText(selectedProject.cid)}
+                  style={{ marginTop: "0.4rem" }}
+                >
+                  Copy CID
+                </button>
+              )}
+            </div>
+
+            {/* IPFS Gateway Link */}
+            <div className="details-card">
+              <span>🌐 IPFS Gateway</span>
+              <strong>
+                {selectedProject.gatewayUrl ? (
+                  <a
+                    href={selectedProject.gatewayUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "#a78bfa", wordBreak: "break-all", fontSize: "0.8rem" }}
+                  >
+                    {selectedProject.gatewayUrl}
+                  </a>
+                ) : "Not deployed yet"}
+              </strong>
+            </div>
+
+            {/* Created */}
+            <div className="details-card">
+              <span>📅 Created</span>
+              <strong>{selectedProject.createdAt}</strong>
+            </div>
+
+            {/* Last Deployment */}
+            <div className="details-card">
+              <span>🚀 Last Deployment</span>
+              <strong>{selectedProject.lastDeployment}</strong>
+            </div>
+
+            {/* Files */}
+            <div className="details-card">
+              <span>📦 Files Deployed</span>
+              <strong>
+                {selectedProject.filesSaved?.length > 0
+                  ? selectedProject.filesSaved.join(", ")
+                  : selectedProject.fileName}
+              </strong>
+            </div>
+
+            {/* Transaction Hash */}
+            {selectedProject.transactionHash && (
+              <div className="details-card">
+                <span>⛓️ Tx Hash</span>
+                <strong style={{ wordBreak: "break-all", fontSize: "0.75rem" }}>
+                  {selectedProject.transactionHash}
+                </strong>
+              </div>
+            )}
+          </div>
+
+          {/* ──── DEPLOY BUTTON ──── */}
+          <div className="project-actions">
+            <button
+              className="primary-button"
+              disabled={deployingId === selectedProject.id}
+              onClick={() => deployProject(selectedProject)}
+            >
+              {deployingId === selectedProject.id
+                ? "Deploying..."
+                : selectedProject.deployment === "Live"
+                ? "🔄 Redeploy"
+                : "🚀 Deploy Project"}
             </button>
 
-            <div className="project-details-header">
-              <div>
-                <p className="pink-label">
-                  PROJECT DETAILS
-                </p>
+            <button
+              className="delete-button"
+              onClick={() => deleteProject(selectedProject.id)}
+            >
+              🗑️ Delete Project
+            </button>
+          </div>
 
-                <h1>
-                  {selectedProject.name}
-                </h1>
-
-                <p>
-                  {selectedProject.description}
-                </p>
+          {deployingId === selectedProject.id && (
+            <div className="deployment-panel">
+              <h2>Deployment Progress</h2>
+              <p>{deploymentStep}</p>
+              <div className="progress-track">
+                <div
+                  className="progress-bar"
+                  style={{ width: getProgress() + "%" }}
+                ></div>
               </div>
-
-              <div
-                className={
-                  selectedProject.deployment ===
-                    "Live"
-                    ? "status live-status large-status"
-                    : "status large-status"
-                }
-              >
-                ●{" "}
-                {selectedProject.deployment ===
-                  "Live"
-                  ? "Live"
-                  : "Ready"}
-              </div>
+              <span>{getProgress()}%</span>
             </div>
+          )}
 
-            <div className="details-grid">
-              <div className="details-card">
-                <span>🌐 Live URL</span>
-
-                <strong>
-                  {selectedProject.url}
-                </strong>
-
-                {selectedProject.deployment ===
-                  "Live" && (
-                    <button
-                      className="copy-button"
-                      onClick={() =>
-                        copyUrl(
-                          selectedProject.url
-                        )
-                      }
-                    >
-                      Copy URL
-                    </button>
-                  )}
-              </div>
-
-              <div className="details-card">
-                <span>📦 Project File</span>
-
-                <strong>
-                  {selectedProject.fileName}
-                </strong>
-              </div>
-
-              <div className="details-card">
-                <span>📅 Created</span>
-
-                <strong>
-                  {selectedProject.createdAt}
-                </strong>
-              </div>
-
-              <div className="details-card">
-                <span>🚀 Last Deployment</span>
-
-                <strong>
-                  {selectedProject.lastDeployment}
-                </strong>
-              </div>
-
-              <div className="details-card">
-                <span>👁️ Visits</span>
-
-                <strong>
-                  {selectedProject.visits}
-                </strong>
-              </div>
-
-              <div className="details-card">
-                <span>💾 Storage</span>
-
-                <strong>
-                  {selectedProject.storage} KB
-                </strong>
-              </div>
+          {deploymentError && (
+            <div
+              className="deployment-panel"
+              style={{ borderColor: "#ff4444", background: "rgba(255,68,68,0.08)" }}
+            >
+              <p style={{ color: "#ff4444" }}>{deploymentError}</p>
             </div>
+          )}
 
-            <div className="project-actions">
-              <button
-                className="primary-button"
-                disabled={
-                  deployingId ===
-                  selectedProject.id
-                }
-                onClick={() =>
-                  deployProject(
-                    selectedProject.id
-                  )
-                }
-              >
-                {deployingId ===
-                  selectedProject.id
-                  ? "Deploying..."
-                  : selectedProject.deployment ===
-                    "Live"
-                    ? "🔄 Redeploy"
-                    : "🚀 Deploy Project"}
-              </button>
+          {/* ──── CID VERIFICATION ──── */}
+          {selectedProject.deployment === "Live" && (
+            <div className="deployment-panel" style={{ marginTop: "1.5rem" }}>
+              <h2>🔍 Verify CID Against Blockchain</h2>
+              <p style={{ marginBottom: "1rem", opacity: 0.7 }}>
+                Enter any CID to check if it matches what's stored on-chain for Website #{selectedProject.websiteId}.
+              </p>
 
-              <button
-                className="delete-button"
-                onClick={() =>
-                  deleteProject(
-                    selectedProject.id
-                  )
-                }
-              >
-                🗑️ Delete Project
-              </button>
-            </div>
+              <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+                <input
+                  type="text"
+                  placeholder="Paste a CID to verify..."
+                  value={verifyCid}
+                  onChange={(e) => {
+                    setVerifyCid(e.target.value);
+                    setVerifyResult(null);
+                    setVerifyError("");
+                  }}
+                  style={{
+                    flex: 1,
+                    minWidth: "200px",
+                    padding: "0.6rem 1rem",
+                    borderRadius: "8px",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    background: "rgba(255,255,255,0.05)",
+                    color: "inherit",
+                    fontSize: "0.875rem",
+                  }}
+                />
 
-            {deployingId ===
-              selectedProject.id && (
-                <div className="deployment-panel">
-                  <h2>
-                    Deployment Progress
-                  </h2>
+                <button
+                  className="outline-button"
+                  onClick={() => handleVerifyCID(selectedProject)}
+                  disabled={verifying}
+                >
+                  {verifying ? "Verifying..." : "Verify CID"}
+                </button>
 
-                  <p>
-                    {deploymentStep}
-                  </p>
+                {/* Quick-fill with current CID */}
+                {selectedProject.cid && (
+                  <button
+                    className="copy-button"
+                    onClick={() => setVerifyCid(selectedProject.cid)}
+                  >
+                    Use Current CID
+                  </button>
+                )}
+              </div>
 
-                  <div className="progress-track">
-                    <div
-                      className="progress-bar"
-                      style={{
-                        width:
-                          getProgress() +
-                          "%",
-                      }}
-                    ></div>
-                  </div>
-
-                  <span>
-                    {getProgress()}%
-                  </span>
+              {verifyResult === true && (
+                <div style={{ marginTop: "1rem", color: "#4ade80", fontWeight: "bold" }}>
+                  ✅ Verified! CID matches the blockchain record.
                 </div>
               )}
-          </section>
-        )}
+
+              {verifyResult === false && (
+                <div style={{ marginTop: "1rem", color: "#f87171", fontWeight: "bold" }}>
+                  ❌ Mismatch! This CID does NOT match the blockchain record.
+                </div>
+              )}
+
+              {verifyError && (
+                <div style={{ marginTop: "1rem", color: "#f87171" }}>
+                  ⚠️ {verifyError}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ──── UPDATE WEBSITE ──── */}
+          {selectedProject.websiteId != null && (
+            <div className="deployment-panel" style={{ marginTop: "1.5rem" }}>
+              <h2>🔄 Update Website</h2>
+              <p style={{ marginBottom: "1rem", opacity: 0.7 }}>
+                Upload a new version. A new IPFS CID will be generated and the blockchain record will be updated (owner-only).
+              </p>
+
+              <div className="upload-box" style={{ marginBottom: "1rem" }}>
+                <input
+                  ref={updateFileInputRef}
+                  type="file"
+                  multiple
+                  onChange={(e) => {
+                    setUpdateFiles(Array.from(e.target.files || []));
+                    setUpdateError("");
+                    setUpdateStep("");
+                  }}
+                  style={{ display: "block", marginBottom: "0.5rem" }}
+                />
+
+                {updateFiles.length > 0 && (
+                  <div className="selected-file">
+                    ✓ {updateFiles.length} file{updateFiles.length > 1 ? "s" : ""} selected:{" "}
+                    {updateFiles.slice(0, 3).map(f => f.name).join(", ")}
+                    {updateFiles.length > 3 && `... +${updateFiles.length - 3} more`}
+                  </div>
+                )}
+              </div>
+
+              <button
+                className="primary-button"
+                onClick={() => handleUpdateWebsite(selectedProject)}
+                disabled={updating || updateFiles.length === 0}
+              >
+                {updating ? updateStep || "Updating..." : "🔄 Deploy Update"}
+              </button>
+
+              {updateStep && !updating && (
+                <div style={{ marginTop: "0.75rem", color: "#4ade80" }}>
+                  ✅ {updateStep}
+                </div>
+              )}
+
+              {updateError && (
+                <div style={{ marginTop: "0.75rem", color: "#f87171" }}>
+                  ❌ {updateError}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ================= NEW PROJECT MODAL ================= */}
 
       {showProjectModal && (
         <div
           className="modal-overlay"
-          onClick={() =>
-            setShowProjectModal(false)
-          }
+          onClick={() => setShowProjectModal(false)}
         >
           <div
             className="project-modal"
-            onClick={(e) =>
-              e.stopPropagation()
-            }
+            onClick={(e) => e.stopPropagation()}
           >
             <button
               className="modal-close"
-              onClick={() =>
-                setShowProjectModal(false)
-              }
+              onClick={() => setShowProjectModal(false)}
             >
               ×
             </button>
 
-            <div className="modal-icon">
-              🚀
-            </div>
+            <div className="modal-icon">🚀</div>
 
-            <h2>
-              Create New Project
-            </h2>
+            <h2>Create New Project</h2>
 
             <p className="modal-subtitle">
-              Add your website and prepare it
-              for deployment.
+              Add your website files and deploy to IPFS + blockchain.
             </p>
 
             <div className="input-group">
-              <label>
-                Project Name
-              </label>
-
+              <label>Project Name</label>
               <input
                 type="text"
                 placeholder="my-awesome-website"
                 value={projectName}
-                onChange={(e) =>
-                  setProjectName(
-                    e.target.value
-                  )
-                }
+                onChange={(e) => setProjectName(e.target.value)}
               />
             </div>
 
             <div className="input-group">
-              <label>
-                Description
-              </label>
-
+              <label>Description</label>
               <textarea
                 className="project-textarea"
                 placeholder="Describe your project..."
                 value={projectDescription}
                 onChange={(e) =>
-                  setProjectDescription(
-                    e.target.value
-                  )
+                  setProjectDescription(e.target.value)
                 }
               ></textarea>
             </div>
 
+            {/* FILE UPLOAD — supports multiple files */}
             <div className="upload-box">
-              <div className="upload-icon">
-                📦
-              </div>
+              <div className="upload-icon">📦</div>
 
-              <h3>
-                Upload Project
-              </h3>
+              <h3>Upload Project Files</h3>
 
-              <p>
-                Select your project files
-              </p>
+              <p>Select all your website files (HTML, CSS, JS, images)</p>
 
               <label className="upload-button">
                 Choose Files
 
                 <input
+                  ref={deployFileInputRef}
                   type="file"
                   multiple
-                  onChange={(e) =>
-                    setSelectedFile(
-                      e.target.files[0] ||
-                      null
-                    )
-                  }
+                  onChange={(e) => {
+                    setSelectedFiles(Array.from(e.target.files || []));
+                  }}
                 />
               </label>
 
-              {selectedFile && (
+              {selectedFiles.length > 0 && (
                 <div className="selected-file">
-                  ✓{" "}
-                  {selectedFile.name}
+                  ✓ {selectedFiles.length} file
+                  {selectedFiles.length > 1 ? "s" : ""} selected:{" "}
+                  {selectedFiles
+                    .slice(0, 3)
+                    .map((f) => f.name)
+                    .join(", ")}
+                  {selectedFiles.length > 3 &&
+                    ` ... +${selectedFiles.length - 3} more`}
                 </div>
               )}
+
+              <p style={{ fontSize: "0.75rem", opacity: 0.5, marginTop: "0.5rem" }}>
+                Supported: .html .css .js .png .jpg .svg .ico .woff .ttf
+              </p>
             </div>
 
             <button
@@ -1373,68 +1528,57 @@ function App() {
   );
 }
 
-// ================= INPUT =================
+// ================= REUSABLE COMPONENTS =================
 
-function Input({
-  label,
-  type,
-  placeholder,
-  value,
-  setValue,
-}) {
+function Input({ label, type, placeholder, value, setValue }) {
   return (
     <div className="input-group">
       <label>{label}</label>
-
       <input
         type={type}
         placeholder={placeholder}
         value={value}
-        onChange={(e) =>
-          setValue(e.target.value)
-        }
+        onChange={(e) => setValue(e.target.value)}
       />
     </div>
   );
 }
 
-// ================= FEATURE =================
-
-function Feature({
-  icon,
-  title,
-  text,
-}) {
+function Feature({ icon, title, text }) {
   return (
     <div className="feature-card">
-      <div className="feature-icon">
-        {icon}
-      </div>
-
+      <div className="feature-icon">{icon}</div>
       <h3>{title}</h3>
-
       <p>{text}</p>
     </div>
   );
 }
 
-// ================= DASHBOARD CARD =================
-
-function DashboardCard({
-  icon,
-  title,
-  value,
-}) {
+function DashboardCard({ icon, title, value }) {
   return (
     <div className="dashboard-card">
-      <div className="dashboard-card-icon">
-        {icon}
-      </div>
-
+      <div className="dashboard-card-icon">{icon}</div>
       <p>{title}</p>
-
       <h2>{value}</h2>
     </div>
+  );
+}
+
+/**
+ * A small colored dot + label showing service health.
+ * status: null = loading, true = ok, false = down
+ */
+function HealthDot({ label, status }) {
+  const color =
+    status === null ? "#888" : status ? "#4ade80" : "#f87171";
+  const dot =
+    status === null ? "○" : status ? "●" : "●";
+
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.85rem" }}>
+      <span style={{ color }}>{dot}</span>
+      <span>{label}</span>
+    </span>
   );
 }
 
