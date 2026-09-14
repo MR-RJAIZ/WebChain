@@ -23,7 +23,6 @@ from fastapi import APIRouter
 from app.api.routes import (
     health,
     upload,
-    deployment,
     website,
     publish,
 )
@@ -39,9 +38,6 @@ api_router.include_router(publish.router)
 
 # File upload only (no IPFS/blockchain step)
 api_router.include_router(upload.router)
-
-# Deployment simulation (legacy, kept for compatibility)
-api_router.include_router(deployment.router)
 
 # Website metadata retrieval, verification, and update
 api_router.include_router(website.router)
