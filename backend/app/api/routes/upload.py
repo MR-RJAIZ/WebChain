@@ -1,90 +1,113 @@
 """
-Upload Route
-------------
+Upload Route (File-Only)
+------------------------
 
-Ye route website files receive karta hai aur
-IPFS par upload karta hai.
+Ye route sirf files receive karke save karta hai.
+IPFS aur blockchain ka kaam yahan nahi hota.
+
+WHY keep this separate from /publish?
+- Testing: Files ko independently upload karke verify karo.
+- Future: Two-step workflows jahan IPFS/blockchain baad mein hona ho.
+
+For the complete deployment flow, use POST /publish instead.
 
 Flow:
 
-Client
-   ↓
 POST /upload
    ↓
-FastAPI
+Save files to isolated directory
    ↓
-Save files locally
-   ↓
-IPFSService
-   ↓
-Kubo
-   ↓
-Root CID
+Return { deployment_id, files_saved }
+
+The returned deployment_id can then be used to
+track which files were uploaded.
 """
 
-from fastapi import APIRouter, UploadFile, File
+import logging
+import uuid
+from pathlib import Path
+
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.services.upload_service import save_upload
-from app.services.ipfs_service import ipfs_service
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
 @router.post("/upload")
-async def upload_file(
-    files: list[UploadFile] = File(...)
+async def upload_files(
+    name: str = Form(..., description="Website name"),
+    files: list[UploadFile] = File(
+        ...,
+        description="Website files to upload",
+    ),
 ):
     """
-    Multiple website files upload karta hai.
+    Upload website files and save them to an isolated directory.
 
-    Example:
+    Does NOT upload to IPFS or register on blockchain.
+    Use POST /publish for the complete deployment flow.
 
-        index.html
-        style.css
-        script.js
+    Request (multipart/form-data):
+        name:  "My Website"
+        files: [index.html, style.css, ...]
 
-    Ye files pehle temporary local storage mein save hoti hain,
-    phir complete directory IPFS par upload hoti hai.
-
-    Returns:
-        Root CID of the uploaded website.
+    Response:
+        {
+            "message": "Files uploaded successfully",
+            "deployment_id": "uuid...",
+            "name": "My Website",
+            "files_saved": ["index.html", "css/style.css", ...]
+        }
     """
 
-    # Uploaded files ke names store karne ke liye.
-    uploaded_files = []
-
-    # =========================================================
-    # 1. SAVE FILES LOCALLY
-    # =========================================================
-
-    for file in files:
-
-        saved_file = await save_upload(file)
-
-        uploaded_files.append(
-            saved_file.name
+    if not name.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Website name is required",
         )
 
-    # =========================================================
-    # 2. UPLOAD COMPLETE WEBSITE TO IPFS
-    # =========================================================
+    if not files:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one file is required",
+        )
 
-    # Complete uploads directory ko IPFS par upload karo.
-    #
-    # IPFSService sirf IPFS responsibility handle karta hai.
-    # Blockchain ka kaam yahan nahi hona chahiye.
+    deployment_id = str(uuid.uuid4())
 
-    root_cid = await ipfs_service.upload_directory(
-        "uploads"
-    )
+    files_saved = []
 
-    # =========================================================
-    # 3. RESPONSE
-    # =========================================================
+    try:
+        for upload_file in files:
+
+            saved_path = await save_upload(
+                file=upload_file,
+                deployment_id=deployment_id,
+            )
+
+            deployment_dir = Path("uploads") / deployment_id
+            relative = str(
+                saved_path.relative_to(deployment_dir)
+            ).replace("\\", "/")
+
+            files_saved.append(relative)
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        logger.exception("File upload failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Upload failed: {str(exc)}",
+        )
 
     return {
-        "message": "Website uploaded successfully",
-        "files": uploaded_files,
-        "root_cid": root_cid,
+        "message": "Files uploaded successfully",
+        "deployment_id": deployment_id,
+        "name": name.strip(),
+        "files_saved": files_saved,
     }

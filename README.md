@@ -1,187 +1,128 @@
-# WebChain — Decentralized Web Hosting
+# WebChain — Decentralized Web Hosting Platform
 
-> A decentralized static web hosting platform using **IPFS for website storage** and **Blockchain for a verifiable CID registry**.
+WebChain is an academic prototype of a decentralized website hosting platform. It allows users to upload static websites, host the content securely on IPFS, and register the website's root CID on an Ethereum-compatible blockchain for immutable tracking.
 
-## 🚀 Overview
+## 🎯 The Problem Solved
+Traditional static hosting (like Vercel or AWS S3) relies on centralized servers. If those servers go down, or if the provider decides to censor the content, the website disappears. WebChain solves this by decentralizing the hosting layer (via IPFS) and the registry layer (via Blockchain).
 
-WebChain allows users to upload and deploy static websites using decentralized technologies.
+## 🧠 Core Idea & Architecture
+The platform separates responsibilities cleanly across a Web3 stack:
 
-The core idea is:
+1. **Frontend (Vite + React)**: Provides a simple UI for users to upload their static website files (`.html`, `.css`, `.js`, etc.) and view their deployment status.
+2. **Backend (FastAPI)**: Serves as the orchestrator. It receives the files, places them into an isolated deployment directory, and coordinates with IPFS and the blockchain.
+3. **Storage (IPFS / Kubo)**: The actual website files are uploaded to a local IPFS node, which returns a cryptographic **Root CID**. This CID represents the entire directory structure of the website.
+4. **Registry (Blockchain / Hardhat)**: The smart contract (`WebsiteRegistry.sol`) stores the relationship between a `Website ID`, its `Owner`, and the `CID`. The files themselves are never stored on the blockchain, only the metadata.
 
-**IPFS stores the website content, while Blockchain stores and verifies its CID.**
+### Why is the CID on the blockchain?
+By storing the CID on the blockchain, we create an immutable, timestamped record of exactly what content was deployed. If a user wants to verify that the website they are viewing on IPFS hasn't been tampered with, they can query the blockchain registry and verify that the CIDs match. Only the original owner wallet can push an updated CID to the registry.
 
-## 🎯 Purpose
+## 🛠️ Technology Stack
+- **Frontend**: React, Vite, CSS (Vanilla)
+- **Backend**: FastAPI, Web3.py, Uvicorn, Python-Multipart
+- **Blockchain**: Solidity, Hardhat, Ethers.js
+- **Storage**: IPFS (Kubo)
 
-Traditional hosting depends on centralized servers. WebChain explores a decentralized alternative for static websites by combining:
-
-- **IPFS** → decentralized content storage
-- **Blockchain** → Website-to-CID registry and verification
-
-Website files are **not stored on the blockchain**.
-
-## 🏗️ Architecture
-
+## 📂 Project Structure
 ```text
-User
- ↓
-React / Vite Frontend
- ↓
-FastAPI Backend
- ├──→ IPFSService → Kubo / IPFS → Root CID
- │
- └──→ BlockchainService → WebsiteRegistry.sol
-                              ↓
-                         Website ID + CID
-
-🔄 How It Works
-1. User selects website files
-          ↓
-2. Frontend sends files to FastAPI
-          ↓
-3. Backend uploads website to IPFS
-          ↓
-4. IPFS generates Root CID
-          ↓
-5. Backend registers CID on blockchain
-          ↓
-6. Blockchain returns Website ID
-          ↓
-7. Frontend shows Website ID + CID
-          ↓
-8. User can view and verify the deployed website
-
-
-🛠️ Tech Stack
-
-Frontend: React, Vite, JavaScript, CSS
-Backend: Python, FastAPI, Uvicorn
-Storage: IPFS, Kubo
-Blockchain: Solidity, Hardhat, Web3.py
-Development: Git, GitHub, VS Code
-
-📂 Project Structure
-
 WebChain/
-├── contracts/
+├── backend/            # FastAPI orchestration layer
+│   ├── app/            # Routes, services, models
+│   ├── tests/          # Pytest backend tests
+│   └── uploads/        # Isolated deployment directories
+├── contracts/          # Solidity smart contracts
 │   └── WebsiteRegistry.sol
-├── ignition/
-├── test/
-├── backend/
-│   ├── app/
-│   │   ├── api/
-│   │   ├── services/
-│   │   │   ├── ipfs_service.py
-│   │   │   ├── blockchain_service.py
-│   │   │   └── upload_service.py
-│   │   └── main.py
-│   ├── tests/
-│   └── .env.example
-├── frontend/
-├── test-site/
-└── README.md
+├── frontend/           # Vite React UI
+│   ├── src/            # App.jsx, index.css
+│   └── index.html
+├── ignition/           # Hardhat ignition deployment modules
+├── test/               # Mocha/Chai smart contract tests
+└── test-site/          # A sample static website to test deployments
+```
 
-✨ Features
+---
 
-Static website deployment
-Multiple file upload
-Nested assets support
-IPFS content storage
-Blockchain CID registration
-Website ID generation
-CID verification
-Owner-only website updates
-IPFS gateway website access
-Frontend + Backend + IPFS + Blockchain integration
+## 🚀 Setup & Installation
 
-▶️ Run Locally
+### Prerequisites
+1. **Node.js & npm** (v18+)
+2. **Python** (v3.10+)
+3. **Kubo (IPFS)** (v0.43.0+)
 
-1. Start Blockchain
-npx hardhat node
-2. Deploy Contract
-npx hardhat ignition deploy ignition/modules/WebsiteRegistry.ts --network localhost
-
-Update the deployed contract address in backend/.env.
-
-3. Start IPFS
-ipfs daemon
-4. Start Backend
+### 1. Configure Environment
+A default `.env.example` file is provided in the `backend` folder.
+Copy it to `.env`:
+```bash
 cd backend
-python -m uvicorn app.main:app --reload
+cp .env.example .env
+```
+*(The default placeholders are already configured for the local Hardhat node).*
 
-Backend:
+### 2. Start the IPFS Node (Kubo)
+Open a terminal and start the IPFS daemon:
+```bash
+ipfs daemon
+```
 
-http://127.0.0.1:8000
+### 3. Start the Blockchain Node (Hardhat)
+Open a new terminal at the project root and install dependencies, then start the local node:
+```bash
+npm install
+npx hardhat node
+```
 
-Swagger:
+### 4. Deploy the Smart Contract
+Open a third terminal at the project root and deploy the contract to your local node:
+```bash
+npx hardhat ignition deploy ignition/modules/WebsiteRegistry.ts --network localhost
+```
+*(The deployed address `0x5FbDB2315678afecb367f032d93F642f64180aa3` is already set in the backend `.env.example` by default).*
 
-http://127.0.0.1:8000/docs
+### 5. Start the FastAPI Backend
+In a new terminal, navigate to the `backend` directory, install dependencies, and run the server:
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+*(The API documentation will be available at http://127.0.0.1:8000/docs).*
 
-5. Start Frontend
+### 6. Start the Frontend
+In a new terminal, navigate to the `frontend` directory, install dependencies, and run Vite:
+```bash
 cd frontend
 npm install
 npm run dev
+```
+*(The frontend will be available at http://localhost:5173).*
 
-Open the URL shown by Vite, usually:
+---
 
-http://127.0.0.1:5173
+## 🎥 Demonstration Flow
 
-🧪 Test
+To demonstrate the platform to a judge or instructor, follow this simple flow:
 
-Smart contract:
+1. **Open the Frontend**: Go to `http://localhost:5173`.
+2. **Login**: Click "Start Deploying" and enter any mock email/password to access the dashboard.
+3. **Check Health**: Show the health indicator bar on the dashboard confirming that the API, IPFS, and Blockchain are all connected.
+4. **Create a Project**: Click `+ New Project`. Name it "My Test Demo".
+5. **Upload Files**: Select all the files inside the `test-site` folder (HTML, CSS, JS, SVG).
+6. **Deploy**: Click the "Deploy" button.
+   - Explain that the files are being saved to an isolated directory on the backend.
+   - The backend then uploads the entire directory to IPFS.
+   - The backend finally signs a transaction sending the IPFS root CID to the Hardhat blockchain.
+7. **View Details**: Click "Details" to open the project view.
+   - Show the assigned **Website ID** and the **IPFS CID**.
+   - Show the **Transaction Hash**.
+8. **View Website**: Click the IPFS Gateway link to prove the website was actually deployed and all HTML/CSS/JS/Assets loaded correctly via IPFS.
+9. **Verify CID**: Paste the CID (or click "Use Current CID") and click "Verify CID". Show that the backend successfully checked the blockchain and confirmed the CID matches.
+10. **Update Flow (Optional)**: Click "Deploy Update", select a single file (e.g., `index.html`), and show that a *new* CID is generated and updated on the blockchain.
 
-npx hardhat test
+---
 
-Backend:
+## 🔒 Security & Limitations
 
-cd backend
-pytest
-
-For end-to-end testing, upload the included test-site/ and verify:
-
-HTML loads
-CSS loads
-JavaScript works
-Image/assets load
-CID is generated
-Website ID is registered
-CID verification works
-🔐 Security
-Private keys stay in backend/.env
-.env must never be committed
-Kubo RPC should not be publicly exposed
-Uploaded paths are validated and sanitized
-Blockchain stores metadata/CID, not website files
-
-
-🌐 Applications
-
-WebChain can be used for:
-
-Decentralized static websites
-Documentation hosting
-Academic/research archives
-Organizational websites
-dApp frontends
-Versioned static content
-👥 Team
-
-Ritik — Blockchain + IPFS
-Suryansh — Frontend
-Saquib — Backend
-
-🔮 Future Scope
-Custom domains
-Wallet-based ownership
-Persistent IPFS pinning
-Public blockchain deployment
-Website version history
-Deployment rollback
-Production-grade authentication and monitoring
-📌 Core Idea
-
-IPFS stores the website. Blockchain stores and verifies its CID.
-
-WebChain demonstrates an end-to-end approach to decentralized static website deployment.
-
-
-                         
+As an academic prototype, WebChain prioritizes architectural clarity over production-grade security:
+- **Private Keys**: The backend signs transactions locally using a private key loaded from `.env`. The frontend never sees or handles private keys.
+- **Path Traversal**: File upload paths are strictly sanitized to prevent malicious `../../` attacks.
+- **Isolated Deployments**: Every deployment receives a unique UUID folder (e.g., `uploads/<uuid>/`) so user files cannot overwrite each other.
+- **Local Network Only**: This prototype connects to a local Hardhat node and local Kubo instance. Deploying to public networks (e.g., Ethereum Mainnet, public IPFS gateways) would require real gas fees and a production-grade infrastructure setup.
