@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebChain Test Website</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="hero">
+    <nav class="container nav">
+      <div class="brand">⛓ WebChain</div>
+      <span class="badge">IPFS Deployment Test</span>
+    </nav>
+
+    <section class="container hero-content">
+      <div>
+        <p class="eyebrow">DECENTRALIZED WEB HOSTING</p>
+        <h1>My website is deployed through WebChain.</h1>
+        <p class="subtitle">
+          This test website includes HTML, CSS, JavaScript, and a nested image asset.
+          If all of them work after deployment, your multi-file IPFS upload is working.
+        </p>
+        <button id="testButton">Test JavaScript</button>
+        <p id="result">Waiting for JavaScript test...</p>
+      </div>
+
+      <div class="card">
+        <img src="assets/webchain-logo.svg" alt="WebChain logo">
+        <h2>Deployment Check</h2>
+        <p>HTML ✅ CSS ✅ Image ✅ JS ✅</p>
+      </div>
+    </section>
+  </header>
+
+  <main class="container section">
+    <h2>What this proves</h2>
+    <div class="grid">
+      <article>
+        <h3>HTML</h3>
+        <p>Loaded from <code>index.html</code>.</p>
+      </article>
+      <article>
+        <h3>CSS</h3>
+        <p>Loaded from the separate <code>style.css</code> file.</p>
+      </article>
+      <article>
+        <h3>Image</h3>
+        <p>Loaded from the nested <code>assets/</code> folder.</p>
+      </article>
+      <article>
+        <h3>JavaScript</h3>
+        <p>Executed from the separate <code>script.js</code> file.</p>
+      </article>
+    </div>
+  </main>
+
+  <footer>
+    <div class="container">WebChain • Static Website Deployment Test</div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
