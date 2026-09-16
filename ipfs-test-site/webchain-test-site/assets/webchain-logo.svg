@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 300">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1">
+      <stop offset="0%" stop-color="#6ea8ff"/>
+      <stop offset="100%" stop-color="#a979ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="500" height="300" rx="40" fill="#10172f"/>
+  <circle cx="250" cy="120" r="75" fill="url(#g)"/>
+  <path d="M215 150l35-35 35 35-35 35z" fill="#10172f"/>
+  <text x="250" y="250" text-anchor="middle" font-family="Arial"
+        font-size="42" font-weight="700" fill="#fff">WEBCHAIN</text>
+</svg>

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebChain Test Site</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <div class="container">
+        <header>
+            <img src="assets/logo.svg" alt="WebChain Logo" class="logo" />
+            <h1>WebChain Test Site</h1>
+            <p class="subtitle">Deployed via IPFS &amp; Blockchain</p>
+        </header>
+
+        <main>
+            <div class="card">
+                <h2>✅ HTML Loaded</h2>
+                <p>This page was successfully retrieved from IPFS.</p>
+            </div>
+
+            <div class="card">
+                <h2>🎨 CSS Loaded</h2>
+                <p>Styling is working — this card has a gradient border.</p>
+            </div>
+
+            <div class="card" id="js-card">
+                <h2>⚡ JavaScript Status</h2>
+                <p id="js-status">Checking...</p>
+            </div>
+
+            <div class="card">
+                <h2>🖼️ Asset Loaded</h2>
+                <p>The logo above was loaded from <code>assets/logo.svg</code>.</p>
+            </div>
+        </main>
+
+        <footer>
+            <p>Decentralized hosting powered by <strong>IPFS</strong> + <strong>Ethereum</strong></p>
+            <p id="timestamp"></p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
