@@ -268,10 +268,110 @@ function App() {
     setProjectName("");
     setProjectDescription("");
     setSelectedFiles([]);
+<<<<<<< HEAD
+    setShowProjectModal(true);
+  }
+
+async function createProject() {
+  if (!projectName.trim()) {
+    alert("Please enter project name.");
+    return;
+  }
+
+  if (selectedFiles.length === 0) {
+    alert("Please select website files.");
+    return;
+  }
+
+  try {
+    const formData = new FormData();
+
+    selectedFiles.forEach((file) => {
+      formData.append("files", file);
+    });
+
+    const uploadResponse = await fetch(
+      "http://127.0.0.1:8000/upload",
+      {
+        method: "POST",
+        body: formData,
+      }
+    );
+
+    if (!uploadResponse.ok) {
+      const error = await uploadResponse.json();
+      throw new Error(
+        error.detail || "Upload failed"
+      );
+    }
+
+    const cleanName = projectName
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "");
+
+    const newProject = {
+      id: Date.now(),
+      name: projectName.trim(),
+      description:
+        projectDescription.trim() ||
+        "A new Web3Host project.",
+
+      status: "Ready",
+      deployment: "Not deployed",
+
+      url: "",
+
+      fileName:
+        selectedFiles.length === 1
+          ? selectedFiles[0].name
+          : `${selectedFiles.length} files`,
+
+      createdAt: new Date().toLocaleString(),
+      lastDeployment: "Not deployed",
+
+      visits: 0,
+
+      storage: Math.floor(
+        selectedFiles.reduce(
+          (total, file) => total + file.size,
+          0
+        ) / 1024
+      ),
+
+      deploymentId: null,
+      siteUrl: null,
+      cid: null,
+      transactionHash: null,
+    };
+
+    setProjects((prev) => [
+      ...prev,
+      newProject,
+    ]);
+
+    setShowProjectModal(false);
+    setProjectName("");
+    setProjectDescription("");
+    setSelectedFiles([]);
+
+    addNotification(
+      "Project uploaded successfully 🚀"
+    );
+
+  } catch (error) {
+    console.error(error);
+    alert(error.message);
+  }
+}
+
+=======
     setDeploymentError("");
     setShowProjectModal(true);
   }
 
+>>>>>>> main
   // ================= NOTIFICATION =================
   function addNotification(message) {
     const notification = {
@@ -283,6 +383,138 @@ function App() {
     setNotifications((prev) => [notification, ...prev]);
   }
 
+<<<<<<< HEAD
+  // ================= DEPLOY =================
+async function deployProject(id) {
+  setDeployingId(id);
+  setDeploymentStep("Creating deployment...");
+
+  try {
+    const deployResponse = await fetch(
+      "http://127.0.0.1:8000/deploy",
+      {
+        method: "POST",
+      }
+    );
+
+    if (!deployResponse.ok) {
+      const error = await deployResponse.json();
+
+      throw new Error(
+        error.detail ||
+        error.message ||
+        "Deployment failed"
+      );
+    }
+
+    const deployment = await deployResponse.json();
+
+    const deploymentId =
+      deployment.deployment_id;
+
+    setDeploymentStep(
+      "Processing deployment..."
+    );
+
+    let currentDeployment = deployment;
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, 500)
+      );
+
+      const statusResponse = await fetch(
+        `http://127.0.0.1:8000/deploy/${deploymentId}`
+      );
+
+      if (!statusResponse.ok) {
+        throw new Error(
+          "Could not check deployment status"
+        );
+      }
+
+      currentDeployment =
+        await statusResponse.json();
+
+      if (
+        currentDeployment.status === "deployed" ||
+        currentDeployment.status === "failed"
+      ) {
+        break;
+      }
+    }
+
+    if (
+      currentDeployment.status === "failed"
+    ) {
+      throw new Error(
+        currentDeployment.message ||
+        "Deployment failed"
+      );
+    }
+
+    const fullSiteUrl =
+      "http://127.0.0.1:8000" +
+      currentDeployment.site_url;
+
+    setProjects((prev) =>
+      prev.map((project) =>
+        project.id === id
+          ? {
+              ...project,
+              deployment: "Live",
+              status: "Deployed",
+
+              deploymentId:
+                currentDeployment.deployment_id,
+
+              siteUrl: fullSiteUrl,
+              url: fullSiteUrl,
+
+              cid:
+                currentDeployment.cid,
+
+              transactionHash:
+                currentDeployment.transaction_hash,
+
+              lastDeployment:
+                new Date().toLocaleString(),
+            }
+          : project
+      )
+    );
+
+    setDeploymentStep("Deployment complete");
+
+    addNotification(
+      "Project deployed successfully 🚀"
+    );
+
+    alert(
+      "Project deployed successfully!"
+    );
+
+  } catch (error) {
+    console.error(error);
+
+    setProjects((prev) =>
+      prev.map((project) =>
+        project.id === id
+          ? {
+              ...project,
+              status: "Failed",
+              deployment: "Failed",
+            }
+          : project
+      )
+    );
+
+    alert(error.message);
+
+  } finally {
+    setDeployingId(null);
+    setDeploymentStep("");
+=======
   // ================= REAL DEPLOY =================
   /**
    * Deploys a website by:
@@ -345,7 +577,9 @@ function App() {
     } finally {
       setDeployingId(null);
     }
+>>>>>>> main
   }
+}
 
   // ================= DELETE =================
   function deleteProject(id) {
@@ -1487,6 +1721,24 @@ function App() {
               <label className="upload-button">
                 Choose Files
 
+<<<<<<< HEAD
+              <input
+  		type="file"
+  		multiple
+  		onChange={(e) =>
+    		  setSelectedFiles(
+      		    Array.from(e.target.files)
+    		  )
+  		}
+	      />
+              </label>
+
+              {selectedFiles.length > 0 && (
+  		<div className="selected-file">
+    		  ✓ {selectedFiles.length} file(s) selected
+  		</div>
+	      )}
+=======
                 <input
                   ref={deployFileInputRef}
                   type="file"
@@ -1513,6 +1765,7 @@ function App() {
               <p style={{ fontSize: "0.75rem", opacity: 0.5, marginTop: "0.5rem" }}>
                 Supported: .html .css .js .png .jpg .svg .ico .woff .ttf
               </p>
+>>>>>>> main
             </div>
 
             <button

@@ -1,3 +1,8 @@
+<<<<<<< HEAD
+import os
+
+from dotenv import load_dotenv
+=======
 """
 WebChain FastAPI Application
 -----------------------------
@@ -28,10 +33,20 @@ API documentation:
 
 import logging
 
+>>>>>>> main
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.database import Base, engine
+from app.db_models import DeploymentDB
+
+
+load_dotenv()
+
+
+Base.metadata.create_all(bind=engine)
+
 
 
 # Configure logging so we can see useful server-side messages.
@@ -59,6 +74,17 @@ app = FastAPI(
 )
 
 
+<<<<<<< HEAD
+frontend_origin = os.getenv(
+    "FRONTEND_ORIGIN",
+    "http://localhost:3000"
+)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[frontend_origin],
+=======
 # =========================================================
 # CORS
 # =========================================================
@@ -69,12 +95,18 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+>>>>>>> main
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+<<<<<<< HEAD
+app.include_router(api_router)
+
+
+=======
 # =========================================================
 # API ROUTES
 # =========================================================
@@ -86,6 +118,7 @@ app.include_router(api_router)
 # ROOT
 # =========================================================
 
+>>>>>>> main
 @app.get("/")
 def root():
     """
